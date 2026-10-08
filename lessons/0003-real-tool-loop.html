@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 3 课 · 让真模型自己决定调哪个工具</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<p class="breadcrumb">第 3 课　·　<a href="0002-first-real-call.html">← 第 2 课</a></p>
+
+<h1>让真模型自己决定调哪个工具</h1>
+<p class="subtitle">前两课的零件今天组装完成。这一课结束时，你手上是一个真正的 Agent。</p>
+<p class="meta">
+  <span>约 25 分钟</span>
+  <span>产出：<code>exercises/03_real_tool_loop.py</code></span>
+  <span>会真的花钱，几分</span>
+</p>
+
+<h2>零件已经齐了</h2>
+
+<p>你手上现在有三样东西，今天只做组装：</p>
+
+<table class="wide">
+<thead><tr><th style="width:18%">来自</th><th>你已经会的</th></tr></thead>
+<tbody>
+<tr><td><a href="0001-agent-loop.html">第 1 课</a></td><td>循环骨架、工具表、<code>fn(**args)</code> 展开调用、轮数上限</td></tr>
+<tr><td><a href="0002-first-real-call.html">第 2 课</a></td><td>真实请求、<code>messages</code> 结构、<strong>按 <code>type</code> 筛内容块</strong></td></tr>
+<tr><td>那次报错</td><td>「取第一个」的假设不可靠。今天这条会再救你一次</td></tr>
+</tbody>
+</table>
+
+<p>今天要删掉 <code>fake_model</code>。<strong>循环的形状一行都不用改</strong>，只是发牌的人从写死的数组变成了真的 Claude。</p>
+
+<h2>唯一的新概念：模型看不见你的代码</h2>
+
+<p>第 1 课里，<code>fake_model</code> 凭空就知道有 <code>get_weather</code> 和 <code>add</code>，因为是我写死的。真模型不知道。它看不到你的 Python 文件。</p>
+
+<p>所以你得<strong>用一份声明告诉它</strong>：</p>
+
+<pre><code>{
+    <span class="s">"name"</span>: <span class="s">"get_weather"</span>,                  <span class="c"># 必填。要和你的函数表键一致</span>
+    <span class="s">"description"</span>: <span class="s">"查询某个城市当前的天气。当用户问到天气、气温、冷热时使用。"</span>,
+    <span class="s">"input_schema"</span>: {                        <span class="c"># 必填。标准 JSON Schema</span>
+        <span class="s">"type"</span>: <span class="s">"object"</span>,
+        <span class="s">"properties"</span>: {
+            <span class="s">"city"</span>: {<span class="s">"type"</span>: <span class="s">"string"</span>, <span class="s">"description"</span>: <span class="s">"城市名，例如「杭州」"</span>},
+        },
+        <span class="s">"required"</span>: [<span class="s">"city"</span>],
+    },
+}</code></pre>
+
+<p>这个结构你不陌生。<code>input_schema</code> 就是 JSON Schema，和你在前端做表单校验、写 OpenAPI 时用的是同一套东西。</p>
+
+<div class="callout">
+  <span class="label">今天最重要的一句话</span>
+  <p style="margin-bottom:0"><code>description</code> <strong>不是注释，它是提示词。</strong><br>
+  模型完全靠这句话判断「现在该不该用这个工具」。写得含糊，模型就选错或者干脆不用。<br>
+  <strong>而这不是代码 bug，是提示词问题。</strong></p>
+</div>
+
+<p>这条对你的目标很实在。交付之后客户报「它没去查天气」，你得能立刻分辨：是循环写错了，还是 <code>description</code> 没说清「什么时候用」。这两种问题的排查方向完全相反，分不清就会浪费掉一整天。</p>
+
+<p>顺带一个写声明的经验：<strong>description 里写「什么时候该用它」，比写「它做什么」有用得多。</strong>「查询天气」不如「当用户问到天气、气温、冷热时使用」。后者直接给出了触发条件。</p>
+
+<h2>请求和回复的变化</h2>
+
+<p>请求只多了一个参数：</p>
+
+<pre><code>resp = client.messages.create(
+    model=MODEL,
+    max_tokens=<span class="s">1024</span>,
+    tools=TOOL_SCHEMAS,        <span class="c"># ← 新增这一行</span>
+    messages=messages,
+)</code></pre>
+
+<p>回复多了一种可能。<code>stop_reason</code> 会变成 <code>"tool_use"</code>，<code>content</code> 里出现 <code>tool_use</code> 块：</p>
+
+<table class="wide">
+<thead><tr><th style="width:26%"><code>tool_use</code> 块的字段</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><code>.name</code></td><td>工具名。拿它查你的函数表</td></tr>
+<tr><td><code>.input</code></td><td>参数，一个 dict。<code>fn(**block.input)</code> 展开调用（第 1 课那个 <code>**</code>）</td></tr>
+<tr><td><code>.id</code></td><td>本次调用的标识。<strong>报结果时必须原样带回</strong></td></tr>
+</tbody>
+</table>
+
+<p>筛出它的写法你已经会了，和第 2 课筛 <code>text</code> 块一模一样，只换类型名：</p>
+
+<pre><code>calls = [b <span class="k">for</span> b <span class="k">in</span> resp.content <span class="k">if</span> b.type == <span class="s">"tool_use"</span>]</code></pre>
+
+<h2>最容易漏的一步</h2>
+
+<p>执行完工具，把结果发回去之前，<strong>必须先把模型这一轮的完整回复原样追加回 <code>messages</code></strong>：</p>
+
+<pre><code>messages.append({<span class="s">"role"</span>: <span class="s">"assistant"</span>, <span class="s">"content"</span>: resp.content})
+messages.append({<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: results})</code></pre>
+
+<p>为什么？<strong>因为第 2 课那个结论：模型是无状态的。</strong>它不记得自己刚才要求调了什么工具。你只发结果不发请求，服务端会直接报 400，说 <code>tool_result</code> 找不到对应的 <code>tool_use</code>。</p>
+
+<p>那个「模型没有记忆」的实验，今天开始变成每天都要处理的工程约束。</p>
+
+<div class="callout trap">
+  <span class="label">两个反直觉的地方</span>
+  <p><strong>1. 工具结果用 <code>role: "user"</code> 发回去。</strong>不是 <code>assistant</code>，也没有 <code>"tool"</code> 这个角色。想通就好记：<em>结果不是模型说的话</em>。（OpenAI 的接口里有 <code>tool</code> 角色，Anthropic 这套只有 <code>user</code> 和 <code>assistant</code>，读文档时别混。）</p>
+  <p style="margin-bottom:0"><strong>2. 两个方向的数据类型不一样。</strong>模型给你的块是 <strong>SDK 对象</strong>，用点号取值 <code>block.input</code>；你给模型的块是 <strong>普通 dict</strong>，用键构造。字段名也不对称：一个叫 <code>id</code>，另一个叫 <code>tool_use_id</code>。</p>
+</div>
+
+<pre><code>{
+    <span class="s">"type"</span>: <span class="s">"tool_result"</span>,
+    <span class="s">"tool_use_id"</span>: call.id,      <span class="c"># ← 用 .id 配对，字段名却叫 tool_use_id</span>
+    <span class="s">"content"</span>: str(output),       <span class="c"># ← 要字符串，数字得 str() 一下</span>
+}</code></pre>
+
+<p>完整的字段清单和报错对照表我整理成了 <a href="../reference/tool-use-protocol.html"><strong>工具调用协议速查</strong></a>，写代码时开着它。</p>
+
+<h2>动手</h2>
+
+<ol class="steps">
+  <li>先跑 <code>python3 exercises/00_check_env.py</code>。我给它加了<strong>第二段检查：工具调用支持探测</strong>。因为不是所有第三方端点都支持 <code>tools</code>，提前探明，别做到一半才发现。</li>
+  <li>打开 <code>exercises/03_real_tool_loop.py</code>，通读三层结构。第 1 层和第 1 课完全一样。</li>
+  <li>补 <strong>TODO 1</strong>：照 <code>WEATHER_SCHEMA</code> 的样子，给 <code>add</code> 写声明。数字类型写 <code>"number"</code>。</li>
+  <li>补 <strong>TODO 2</strong>：筛出 <code>tool_use</code> 块。</li>
+  <li>补 <strong>TODO 3</strong>：把 <code>resp.content</code> 原样追加为 assistant 消息。</li>
+  <li>补 <strong>TODO 4</strong>：构造 <code>tool_result</code> 块。</li>
+  <li>运行 <code>python3 exercises/03_real_tool_loop.py</code></li>
+</ol>
+
+<p>脚本会问三个问题。<strong>重点看第三个：</strong>「杭州今天几度？在那个温度上再加 7 度是多少？」</p>
+
+<p>这一问模型必须<strong>先查天气，从返回的文字里读出 26，再拿 26 去调 <code>add</code></strong>。你会看到两轮 <code>tool_use</code>，第二轮的参数是第一轮结果推导出来的。</p>
+
+<p>那一刻就是 Agent 和「一次函数调用」的分界线：<strong>没有人告诉它要分两步，是它自己决定的。</strong>这也正是 <a href="https://www.anthropic.com/engineering/building-effective-agents">Anthropic 那篇文章</a>里 agent 的定义所指。</p>
+
+<p>顺便注意每轮打印的 <code>输入 token</code>：它会一路往上涨，因为历史在累积。第 2 课算过的那个比值，现在你能亲眼看着它变大。</p>
+
+<details>
+  <summary>卡住了？先看这里</summary>
+  <p><strong>400，说 <code>tool_result</code> 找不到对应的 <code>tool_use</code>：</strong>TODO 3 漏了，没把 assistant 那一轮追加回去。这是本课头号错误。</p>
+  <p><strong>400，说少了 <code>tool_result</code>：</strong>模型一轮要了两个工具，你只报了一个。<code>calls</code> 要全部遍历。</p>
+  <p><strong><code>KeyError: 'add'</code>：</strong>TODO 1 里的 <code>name</code> 和 <code>TOOLS</code> 的键不一致。</p>
+  <p><strong><code>TypeError: add() got an unexpected keyword argument</code>：</strong><code>input_schema</code> 里的属性名和 Python 函数的参数名不一致。函数是 <code>add(a, b)</code>，schema 里就得是 <code>a</code> 和 <code>b</code>。</p>
+  <p><strong>模型不肯用 <code>add</code>，自己算了：</strong><code>description</code> 不够明确。试试写「计算两个数字相加。需要做加法运算时使用，不要自己心算。」这就是提示词工程，不是代码问题。</p>
+  <p><strong>某些端点报 <code>tools</code> 相关的 400：</strong>第三方中转对工具支持可能不完整。改两个环境变量换供应商，Python 代码不用动（第 2 课学的）。</p>
+  <p style="margin-bottom:0"><strong>循环跑满 6 轮还没停：</strong>看看是不是每轮都在重复调同一个工具。通常是 <code>tool_result</code> 的 <code>content</code> 是空的，模型没拿到有效信息。</p>
+</details>
+
+<details>
+  <summary>参考答案（自己写完再打开）</summary>
+<pre><code>ADD_SCHEMA = {
+    <span class="s">"name"</span>: <span class="s">"add"</span>,
+    <span class="s">"description"</span>: <span class="s">"计算两个数字相加。需要做加法运算时使用。"</span>,
+    <span class="s">"input_schema"</span>: {
+        <span class="s">"type"</span>: <span class="s">"object"</span>,
+        <span class="s">"properties"</span>: {
+            <span class="s">"a"</span>: {<span class="s">"type"</span>: <span class="s">"number"</span>, <span class="s">"description"</span>: <span class="s">"第一个加数"</span>},
+            <span class="s">"b"</span>: {<span class="s">"type"</span>: <span class="s">"number"</span>, <span class="s">"description"</span>: <span class="s">"第二个加数"</span>},
+        },
+        <span class="s">"required"</span>: [<span class="s">"a"</span>, <span class="s">"b"</span>],
+    },
+}</code></pre>
+<pre><code>        <span class="c"># TODO 2</span>
+        calls = [b <span class="k">for</span> b <span class="k">in</span> resp.content <span class="k">if</span> b.type == <span class="s">"tool_use"</span>]
+
+        <span class="c"># TODO 3　顺序很重要：先 assistant，再 user</span>
+        messages.append({<span class="s">"role"</span>: <span class="s">"assistant"</span>, <span class="s">"content"</span>: resp.content})
+
+        <span class="c"># TODO 4</span>
+        results = []
+        <span class="k">for</span> call <span class="k">in</span> calls:
+            fn = TOOLS[call.name]
+            output = fn(**call.input)
+            print(f<span class="s">"     [执行] {call.name}({call.input}) -&gt; {output}"</span>)
+            results.append(
+                {
+                    <span class="s">"type"</span>: <span class="s">"tool_result"</span>,
+                    <span class="s">"tool_use_id"</span>: call.id,
+                    <span class="s">"content"</span>: str(output),
+                }
+            )</code></pre>
+  <p style="margin-bottom:0">加上第 1 课的循环，你现在有一个不到 60 行、完全没有框架、能自己决定调工具的 Agent。市面上的框架做的就是这件事，外面包了很多层。</p>
+</details>
+
+<h2>下一步该加什么（先想，别写）</h2>
+
+<p>你现在这个 Agent 能跑，但离能交付给客户还差几件事。先自己想一遍，这比我直接列出来有用：</p>
+
+<ul>
+<li>工具执行时抛异常了怎么办？（提示：<a href="../reference/tool-use-protocol.html">协议速查</a>最后一节有答案，关键词 <code>is_error</code>）</li>
+<li>模型编造了一个不存在的工具名怎么办？</li>
+<li>历史涨到超过上下文窗口怎么办？</li>
+<li>某个工具会删数据，要不要在执行前问一下人？</li>
+</ul>
+
+<p>这四个问题就是后面几课的内容。它们才是「demo」和「能收钱的东西」之间的真正差距。</p>
+
+<h2>检验一下：合上课文再答</h2>
+
+<p>七题，其中<strong>两题回考前两课</strong>。凭记忆答。</p>
+
+<div class="quiz" data-title="第 3 课 · 回忆练习（含回考）">
+<script type="application/json">
+[
+  {
+    "q": "工具声明里的 <code>description</code> 是给谁看的？",
+    "options": [
+      "模型，它靠这个决定用不用",
+      "同事，它只是一段注释而已",
+      "服务端，用来做参数的校验",
+      "日志，出错时便于定位问题"
+    ],
+    "answer": 0,
+    "why": "它是<strong>提示词</strong>。模型完全靠这句话判断该不该用这个工具。所以「模型不肯用工具」是提示词问题，不是代码 bug。交付后能立刻分辨这两类问题，能省下整天的排查时间。"
+  },
+  {
+    "q": "为什么必须把 assistant 那一轮原样追加回 <code>messages</code>？",
+    "options": [
+      "模型无状态，不重发就忘了",
+      "为了在本地留一份调试日志",
+      "为了让输入的费用算得更准",
+      "为了给工具的结果留出位置"
+    ],
+    "answer": 0,
+    "why": "第 2 课那个结论的直接后果：模型不记得自己刚才要求调了什么工具。只发 <code>tool_result</code> 不发对应的 <code>tool_use</code>，服务端会报 400。这是本课的头号错误。"
+  },
+  {
+    "q": "工具执行结果要用哪个角色发回去？",
+    "options": [
+      "用户角色，结果不是模型说的",
+      "助手角色，它承接模型的回复",
+      "系统角色，因为属于外部信息",
+      "工具角色，专门为此设的角色"
+    ],
+    "answer": 0,
+    "why": "<code>role: \"user\"</code>。反直觉但想通就好记：结果不是模型说的话。注意 Anthropic 这套接口<em>没有</em> <code>tool</code> 角色，只有 user 和 assistant。OpenAI 的接口里有，读文档时容易混。"
+  },
+  {
+    "q": "循环的退出条件应该怎么判断？",
+    "options": [
+      "只要不是要求调工具就退出",
+      "只有明确表示说完了才退出",
+      "每一轮固定检查一次再退出",
+      "由工具的返回值来决定退出"
+    ],
+    "answer": 0,
+    "why": "写 <code>!= \"tool_use\"</code>，不要写 <code>== \"end_turn\"</code>。因为 <code>max_tokens</code>、<code>refusal</code>、上下文超限这些值都不是 <code>end_turn</code>，只认 end_turn 的话遇到它们循环会空转，继续烧钱。"
+  },
+  {
+    "q": "模型一轮里要求调了两个工具，该怎么办？",
+    "options": [
+      "全部执行，结果放同一条消息",
+      "只执行第一个，其余下轮再说",
+      "分别发成两条消息回给模型看",
+      "报错处理，因为一轮只能一个"
+    ],
+    "answer": 0,
+    "why": "全部执行，所有 <code>tool_result</code> 块放进<em>同一条</em> user 消息的 content 列表里。少报一个服务端就报错。所以筛 <code>tool_use</code> 要用列表推导式全取，不能只拿第一个。又是一次「别取第一个」。"
+  },
+  {
+    "q": "<strong>回考第 1 课。</strong>工具函数最终是谁执行的？",
+    "options": [
+      "你自己写的代码，不是模型",
+      "模型自己执行，你收到结果",
+      "由平台的服务器代为执行的",
+      "由声明里的语法定义来执行"
+    ],
+    "answer": 0,
+    "why": "你的代码。模型只是<em>请求</em>调用，<code>tool_use</code> 块就是那个请求。这意味着超时、重试、权限、安全边界全在你手上。今天你亲手写了执行那一步，这条应该比前两次更实在了。"
+  },
+  {
+    "q": "模型明明该用工具却不用，先改什么？",
+    "options": [
+      "先改工具声明里的描述文字",
+      "先改循环里的退出判断条件",
+      "先给参数表加上更多的字段",
+      "先把模型换成更强的那一档"
+    ],
+    "answer": 0,
+    "why": "改 <code>description</code>，把「什么时候该用它」写明确。九成的「模型不用工具」都是这里没说清。换更强的模型是最贵也最偷懒的办法，而且往往治不了本。"
+  }
+]
+</script>
+</div>
+
+<h2>今天的主要阅读</h2>
+
+<p><a href="https://github.com/anthropics/anthropic-sdk-python"><strong>anthropic-sdk-python 官方仓库</strong></a>（已确认可访问）</p>
+
+<p>这次推荐的不是文章，是<strong>一个查证的习惯</strong>。本机打不开 Anthropic 文档站，所以这一课所有字段名我都是这样确认的：</p>
+
+<pre><code>python -c <span class="s">"from anthropic.types import ToolResultBlockParam as T; print(T.__annotations__)"</span></code></pre>
+
+<p>装好的包就在你硬盘上，它的类型定义<strong>比任何文档和博客都准</strong>，也不会过期。你要独立接活，这个习惯值钱：遇到「这个字段到底叫什么」的问题，五秒钟自己就能确认，不用赌搜索结果。</p>
+
+<div class="ask">
+  <p style="margin-bottom:0"><strong>我是你的老师，随时来问。</strong><br>
+  这一课的报错会比前两课更啰嗦（都是 400 和字段名问题），贴给我就行，<strong>记得删掉 key</strong>。<br>
+  特别推荐问：<strong>「第三个问题它到底分了几轮」</strong>（把你的输出贴来，我们一起读）、<strong>「description 怎么写才算好」</strong>（这是提示词工程的入口）、<strong>「框架帮我做了这些，为什么还要手写一遍」</strong>（值得认真聊，答案和你的报价能力有关）。</p>
+</div>
+
+<div class="footer">
+  <h3>下一课会讲什么</h3>
+  <p>默认是<strong>把这个 Agent 变得可靠</strong>：工具报错不崩、幻觉工具名不崩、加上人工确认。也就是上面那四个问题。这是「demo」和「能交付」的分界，直接对应你<a href="../MISSION.md">接活交付</a>的目标。</p>
+
+  <h3>本课相关</h3>
+  <p>
+    <a href="0001-agent-loop.html">第 1 课 · Agent 的心脏是一个 while 循环</a><br>
+    <a href="0002-first-real-call.html">第 2 课 · 第一次真的调用 Claude</a><br>
+    <a href="0004-resilient-agent.html">第 4 课 · 让 Agent 扛得住真实世界 →</a><br>
+    <a href="../reference/tool-use-protocol.html">参考 · 工具调用协议速查</a>　<strong>← 新增，写代码时开着</strong><br>
+    <a href="../reference/glossary.html">参考 · 术语表</a>　·　<a href="../reference/python-for-ts-devs.html">参考 · Python 速查</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+</div>
+
+</body>
+</html>

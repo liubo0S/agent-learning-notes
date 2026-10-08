@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>参考 · 术语表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+
+<p class="breadcrumb">参考文档 · 术语表</p>
+
+<h1>术语表</h1>
+<p class="subtitle">Agent 开发的规范用语。中英并列，因为你查的文档是英文的。</p>
+<p class="meta"><span>只收录已确认掌握的术语</span><span>随课程增补</span><span>最后更新：第 4 课后</span></p>
+
+<div class="callout">
+  <span class="label">这份表的规矩</span>
+  <p style="margin-bottom:0">这里<strong>不是</strong>让你背的词典，而是一份「已掌握」的清单。一个术语只有在你用对过之后才会进来。所以它会长得比课程慢，这是刻意的：表上的每一条，你都应该能不看解释就说清楚。<br>
+  同一个概念在业界常有好几种叫法，本表会挑一个作为标准说法，其余列为<em>避免使用</em>。此后所有课程一律用标准说法。</p>
+</div>
+
+<h2>核心概念</h2>
+
+<p><strong>Agent（智能体）</strong>：<br>
+一个让模型自己决定用什么工具、什么时候收手的系统。判据是<strong>控制权归谁</strong>：流程由模型动态决定才算 Agent。<br>
+<em>避免</em>：AI、机器人、大模型应用（这三个都太宽，指不到具体东西）</p>
+
+<p><strong>Workflow（工作流）</strong>：<br>
+执行路径由你事先用代码写死的系统，模型只是被编排的一环。它和 Agent 是<strong>并列</strong>关系，不是低级版本；需求确定时它更可靠也更便宜。<br>
+<em>避免</em>：管道、流水线、编排（都不带「路径事先写死」这层含义）</p>
+
+<p><strong>Agent 循环（agent loop）</strong>：<br>
+「问模型、执行工具、把结果送回模型」这个不断重复的过程，直到满足退出条件。它是 Agent 的全部机制所在。<br>
+<em>避免</em>：主循环、事件循环（后者在 Python 里专指 asyncio 的东西，会混）</p>
+
+<p><strong>退出条件（stop condition）</strong>：<br>
+让 Agent 循环停下来的判断。至少需要两个：模型主动表示说完了，以及一个轮数硬上限。<br>
+<em>避免</em>：终止条件、break 条件</p>
+
+<h2>工具</h2>
+
+<p><strong>工具（tool）</strong>：<br>
+一个交给模型「可以要求调用」的普通函数。模型本身只能把文字变成文字，工具是它唯一的对外通路。<br>
+<em>避免</em>：插件、函数、能力、技能</p>
+
+<p><strong>工具表（tool registry）</strong>：<br>
+从工具名映射到函数本身的字典。模型说出名字，你查表拿到函数去执行。<br>
+<em>避免</em>：工具集、工具箱、函数映射</p>
+
+<p><strong>工具调用（tool call）</strong>：<br>
+模型输出的一段结构化请求，内容是「我想调用哪个工具、参数是什么」。<br>
+关键：<strong>这只是一个请求，模型没有执行任何东西</strong>。真正执行的是你的代码。API 里对应的块类型叫 <code>tool_use</code>。<br>
+<em>避免</em>：函数调用、function call（后者是 OpenAI 的旧叫法，混用会在读文档时出岔子）</p>
+
+<h2>消息与上下文</h2>
+
+<p><strong>无状态（stateless）</strong>：<br>
+模型不保存任何跨请求的记忆。它每次「记得」上文，都是因为你把全部历史重新发了一遍。<br>
+<em>避免</em>：没有记忆、不会话（前者是口语说法，容易让人以为是模型缺陷而非协议设计）</p>
+
+<p><strong>messages（消息列表）</strong>：<br>
+一次请求携带的完整对话历史，一个列表。每项含 <code>role</code> 和 <code>content</code>。<br>
+因为模型<strong>无状态</strong>，这个列表就是模型能看到的全部世界。<br>
+<em>避免</em>：对话记录、聊天历史、prompt（最后一个尤其要避免，<code>messages</code> 是结构，prompt 是内容）</p>
+
+<p><strong>role（角色）</strong>：<br>
+一条消息的发出方。本工作区用到的接口只有两个值：<code>user</code>（你）和 <code>assistant</code>（模型）。<br>
+注意：工具执行结果也用 <code>user</code> 发送，因为那不是模型说的话。<br>
+<em>避免</em>：身份、发言人。另外 OpenAI 接口里的 <code>tool</code> 角色在这套接口里<strong>不存在</strong>，别混</p>
+
+<p><strong>内容块（content block）</strong>：<br>
+<code>content</code> 列表里的一项。一次回复可能同时包含多个块，类型各不相同：<code>text</code>（有 <code>.text</code>）、<code>thinking</code>（有 <code>.thinking</code>，<strong>没有 <code>.text</code></strong>）、<code>tool_use</code>（有 <code>.name</code> / <code>.input</code>）。<br>
+<strong>取值前必须按 <code>type</code> 筛，绝不能假设第一个块是文本。</strong><br>
+<em>避免</em>：段落、片段、消息体</p>
+
+<p><strong>token</strong>：<br>
+模型计费和计量的最小单位，大致对应词或字的片段。<br>
+<code>input_tokens</code> 随对话轮数持续增长，因为每轮都要重发全部历史。这是长对话变贵的机制。<br>
+<em>避免</em>：字数、词数（都不准，且会误导成本估算）。中文习惯直接说 token，不必翻译</p>
+
+<p><strong>上下文（context）</strong>：<br>
+模型这一次请求能看到的全部内容，即 <code>messages</code> 加上工具声明等。<br>
+它有上限（上下文窗口）。超了就必须裁剪或摘要，这是你的代码要做的事。<br>
+<em>避免</em>：记忆、背景（「记忆」会和<strong>无状态</strong>矛盾，尤其要避免）</p>
+
+<h2>工具协议</h2>
+
+<p><strong>工具声明（tool schema）</strong>：<br>
+放进请求 <code>tools=[...]</code> 里的一份 JSON Schema，告诉模型这个工具叫什么、什么时候该用、参数长什么样。模型看不到你的代码，全靠这份声明判断。<br>
+<em>避免</em>：工具定义、函数签名（后者容易和 Python 函数本身的参数列表混）</p>
+
+<p><strong><code>tool_use</code> 块</strong>：<br>
+模型发出的工具调用请求，内容块的一种，是<strong>对象</strong>，取值用点号：<code>.name</code> / <code>.input</code> / <code>.id</code>。<br>
+<em>避免</em>：调用块（太笼统，容易和 tool_result 混）</p>
+
+<p><strong><code>tool_result</code> 块</strong>：<br>
+你执行完工具后报回去的结果，是一个<strong>普通 dict</strong>，用键构造：<code>tool_use_id</code> / <code>content</code> / <code>is_error</code>。放进 <code>role: "user"</code> 消息的 content 列表里。<br>
+<em>避免</em>：返回块、结果块（都没体现出它必须用 dict 构造这一层）</p>
+
+<p><strong><code>tool_use_id</code></strong>：<br>
+用来把 <code>tool_result</code> 和它对应的 <code>tool_use</code> 配对的字段。取值来自请求那边的 <code>.id</code>，但字段名不叫 <code>id</code>，这是最容易记混的一对名字。<br>
+<em>避免</em>：调用 id、请求 id（不是错，但不是 SDK 里的实际字段名）</p>
+
+<p><strong><code>stop_reason</code></strong>：<br>
+每次回复上都有的字段，说明模型为什么停下这一轮。循环退出条件<strong>判断它是否等于 <code>"tool_use"</code></strong>，不是判断是否等于 <code>"end_turn"</code>，否则 <code>max_tokens</code>、<code>refusal</code> 等异常情况会让循环空转。<br>
+<em>避免</em>：结束原因（口语化，容易忽略它有好几种取值不只是"结束"）</p>
+
+<p><strong><code>is_error</code></strong>：<br>
+<code>tool_result</code> 块上的可选字段，标记这次工具执行是不是失败了。配合把异常信息塞进 <code>content</code>，模型往往能看懂并自己调整参数重试。<br>
+<em>避免</em>：报错标记（不是错，但不是 SDK 里的实际字段名）</p>
+
+<p><strong>人工确认（human-in-the-loop confirmation）</strong>：<br>
+危险、不可逆的工具（删除、发送、转账）执行前，暂停下来让人确认，拒绝就把这当成一次失败结果报回给模型。教学里用 <code>input()</code> 模拟，真实项目里通常是一次前端交互。<br>
+<em>避免</em>：人工审核（听起来更像事后复核，而这里强调的是事前拦截）</p>
+
+<h2>会歧义的地方，本表的裁定</h2>
+
+<p>「Agent」在业界用得极松，有人拿它指全自动系统，有人拿它指固定流程的实现。本工作区采用 <a href="https://www.anthropic.com/engineering/building-effective-agents">Anthropic 的划分</a>：两者统称 <strong>agentic system（智能体系统）</strong>，其中路径写死的叫 workflow，模型自主掌控的才叫 agent。<strong>说「Agent」时一律指后者。</strong></p>
+
+<p>「工具调用」既可以指模型发出的请求，也可能被人用来指整个「请求加执行」的过程。本表<strong>只指请求那一半</strong>。执行那一半没有专门术语，直接说「执行工具」。</p>
+
+<div class="footer">
+  <h3>下一批候选</h3>
+  <p>以下术语第 5 课已经讲到，但要等你做完练习、用对之后才会收录：历史裁剪（trim / context trimming）、结构化日志（structured logging）。</p>
+
+  <h3>相关</h3>
+  <p>
+    <a href="python-for-ts-devs.html">参考 · 给 TypeScript 开发者的 Python 速查</a><br>
+    <a href="tool-use-protocol.html">参考 · 工具调用协议速查</a><br>
+    <a href="../lessons/0001-agent-loop.html">第 1 课</a>　·　<a href="../lessons/0002-first-real-call.html">第 2 课</a>　·　<a href="../lessons/0003-real-tool-loop.html">第 3 课</a>　·　<a href="../lessons/0004-resilient-agent.html">第 4 课</a>　·　<a href="../lessons/0005-trim-and-log.html">第 5 课</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+</div>
+
+</body>
+</html>

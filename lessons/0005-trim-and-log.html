@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 5 课 · 历史裁剪与结构化日志</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<p class="breadcrumb">第 5 课　·　<a href="0004-resilient-agent.html">← 第 4 课</a></p>
+
+<h1>历史裁剪与结构化日志</h1>
+<p class="subtitle">第 3 课末尾留的四个问题，今天把剩下两个补完。</p>
+<p class="meta">
+  <span>约 25 分钟</span>
+  <span>产出：<code>exercises/05_trim_and_log.py</code></span>
+  <span>会真的花钱，几分</span>
+</p>
+
+<h2>两个还没处理的问题</h2>
+
+<table class="wide">
+<thead><tr><th style="width:34%">问题</th><th>今天的答案</th></tr></thead>
+<tbody>
+<tr><td>历史涨到超过上下文窗口怎么办</td><td><strong>裁剪</strong>：定期砍掉旧历史，只留必要的部分</td></tr>
+<tr><td>循环里怎么插日志而不把代码写乱</td><td><strong>结构化日志</strong>：一行一个 JSON，插在固定几个点</td></tr>
+</tbody>
+</table>
+
+<h2>裁剪：不能随便砍</h2>
+
+<p>第 2 课的结论还在起作用：模型无状态，<code>messages</code> 就是它能看到的全部世界。历史一直涨，早晚会撞上 <code>model_context_window_exceeded</code>（<a href="../reference/tool-use-protocol.html">协议速查</a>里列过这个 <code>stop_reason</code>）。最直接的应对是：<strong>发请求前，先把历史裁掉一部分</strong>。</p>
+
+<p>但不能按"条数"随便砍。回想第 3、4 课反复强调的那一点：<code>tool_use</code> 和 <code>tool_result</code> 必须成对出现。一轮工具调用在 <code>messages</code> 里长这样：</p>
+
+<pre><code>[..., {role: <span class="s">"assistant"</span>, content: [tool_use, ...]}, {role: <span class="s">"user"</span>, content: [tool_result, ...]}]</code></pre>
+
+<div class="callout trap">
+  <span class="label">裁剪的单位是"一对"，不是"一条"</span>
+  <p style="margin-bottom:0">如果你按条数裁，恰好砍掉一半（留下 <code>tool_use</code> 那条，砍掉 <code>tool_result</code> 那条，或者反过来），服务端会立刻报 400，因为出现了配不上对的块。<strong>必须整对一起留下或者一起砍掉。</strong>这是「取第一个不可靠」那条原则的第三次出场：任何时候把 <code>messages</code> 当成"随便切片的列表"都会踩坑。</p>
+</div>
+
+<p>另外<strong>第一条消息永远保留</strong>：那是用户最初的问题，砍掉它，模型连自己在回答什么都不知道了。</p>
+
+<pre><code><span class="k">def</span> trim_history(messages, limit):
+    <span class="k">if</span> len(messages) &lt;= limit:
+        <span class="k">return</span> messages
+    head = messages[:<span class="s">1</span>]       <span class="c"># 最初的问题，永远留着</span>
+    body = messages[<span class="s">1</span>:]
+    <span class="k">while</span> len(head) + len(body) &gt; limit <span class="k">and</span> len(body) &gt;= <span class="s">2</span>:
+        body = body[<span class="s">2</span>:]        <span class="c"># 整对砍掉最早的一轮</span>
+    <span class="k">return</span> head + body</code></pre>
+
+<div class="callout">
+  <span class="label">这是一笔真实的取舍，不是免费的午餐</span>
+  <p style="margin-bottom:0">裁掉的历史里可能藏着模型早些轮次查到的信息（比如"杭州 26 度"这句话）。裁掉之后，如果最终答案需要回溯到那条信息，模型可能就说不完整了，或者要重新查一次（多花一次工具调用的钱）。<strong>裁剪省的是 token 成本，付出的代价是可能丢掉早期上下文。</strong>这笔账要不要划算，取决于你的场景：客服机器人可能可以接受"忘了三十轮前的闲聊"，但一个需要长期记住用户偏好的助手就不行。跟客户报价、定方案时，这是要摆到桌面上的权衡，不是纯技术细节。</p>
+</div>
+
+<h2>结构化日志：换个去处，不换心智</h2>
+
+<p>前几课一直在用 <code>print()</code> 看执行过程，这在教学时够用，但接给客户的项目里，<code>print()</code> 出的字符串没法被日志系统检索、按字段筛选、拉图表。换成<strong>一行一个 JSON</strong>：</p>
+
+<pre><code><span class="k">def</span> log(event, **fields):
+    print(json.dumps({<span class="s">"event"</span>: event, **fields}, ensure_ascii=<span class="k">False</span>))</code></pre>
+
+<p><code>**fields</code> 这个写法你在第 1 课就学过（<code>fn(**call.input)</code> 的同一个星号），这里反过来用：<strong>把任意多个关键字参数收集成一个 dict</strong>。TS 里最接近的类比是 <code>{ event, ...fields }</code> 的对象展开。</p>
+
+<p>关键点不是格式好看，而是<strong>去处变了、代码结构没变</strong>：以后接真实项目，把这行 <code>print</code> 换成你日志库的调用（比如 Python 标准库的 <code>logging</code>，或者某个云平台的 SDK），调用这个 <code>log()</code> 函数的所有地方一行都不用改。这是"面向未来但不过度设计"的一个具体例子：今天用最简单的 <code>print</code>，接口留对了，以后升级零成本。</p>
+
+<h2>插在哪几个点</h2>
+
+<p>不是每一行都要记日志，那样反而没法看。今天只插两个点：</p>
+
+<ul>
+<li><strong>每次执行工具之后</strong>：工具名、参数、结果、是否报错。这是你排查"客户说 Agent 干了错事"时第一个要看的记录。</li>
+<li><strong>每次真的发生裁剪之后</strong>：裁前裁后各多少条消息。这能让你事后回答"这次对话是不是丢了上下文"这个问题。</li>
+</ul>
+
+<h2>动手</h2>
+
+<ol class="steps">
+  <li>先跑 <code>python3 exercises/00_check_env.py</code>，确认环境还是通的。</li>
+  <li>打开 <code>exercises/05_trim_and_log.py</code>，注意 <code>MAX_HISTORY_MESSAGES = 3</code>，故意设得很小，这样你不用等真的聊几十轮，几个工具调用之内就能亲眼看到裁剪发生。</li>
+  <li>补 <strong>TODO 1</strong>：实现 <code>trim_history</code>。</li>
+  <li>补 <strong>TODO 2</strong>：裁剪真的削减了长度时，记一条 <code>"trimmed"</code> 日志。</li>
+  <li>补 <strong>TODO 3</strong>：每次执行工具后，记一条 <code>"tool_call"</code> 日志。</li>
+  <li>运行 <code>python3 exercises/05_trim_and_log.py</code></li>
+</ol>
+
+<p>第二个测试问题需要连续三次工具调用（查天气、加 7、除以 3），在这么小的 <code>MAX_HISTORY_MESSAGES</code> 下，中途一定会触发至少一次裁剪。<strong>留意最终答案</strong>：裁剪把最早那轮"杭州 26 度"的记录砍掉之后，模型的最终回答很可能只报计算结果，不再提那个 26 度是哪来的。这不是 bug，是你刚学的那笔取舍在眼前发生。</p>
+
+<details>
+  <summary>卡住了？先看这里</summary>
+  <p><strong>400，说 <code>tool_result</code> 配不上 <code>tool_use</code>：</strong><code>trim_history</code> 按单条砍的，不是按对砍的。检查 <code>body = body[2:]</code> 那一步，步长必须是 2。</p>
+  <p><strong>裁剪日志一次都没打印：</strong>可能是判断条件写反了，应该是 <code>before != len(messages)</code> 才记，不是每轮都记。</p>
+  <p><strong><code>TypeError: Object of type ...  is not JSON serializable</code>：</strong> <code>log()</code> 里传了一个 SDK 对象（比如直接传了 <code>call</code> 而不是 <code>call.input</code>）。<code>json.dumps</code> 只认得基本类型和 dict/list。</p>
+  <p style="margin-bottom:0"><strong>裁剪之后模型开始重复查同一个工具：</strong> <code>MAX_HISTORY_MESSAGES</code> 设得太小，把它刚查到还没用上的信息也砍了。教学场景故意设小是为了让你看见效果，真实项目里这个数字要按你的模型上下文窗口和典型对话长度来算，不能拍脑袋。</p>
+</details>
+
+<details>
+  <summary>参考答案（自己写完再打开）</summary>
+<pre><code><span class="k">def</span> trim_history(messages, limit):
+    <span class="k">if</span> len(messages) &lt;= limit:
+        <span class="k">return</span> messages
+    head = messages[:<span class="s">1</span>]
+    body = messages[<span class="s">1</span>:]
+    <span class="k">while</span> len(head) + len(body) &gt; limit <span class="k">and</span> len(body) &gt;= <span class="s">2</span>:
+        body = body[<span class="s">2</span>:]
+    <span class="k">return</span> head + body</code></pre>
+<pre><code><span class="c"># TODO 2，在 trim_history 调用之后</span>
+<span class="k">if</span> before != len(messages):
+    log(<span class="s">"trimmed"</span>, turn=turn, before=before, after=len(messages))</code></pre>
+<pre><code><span class="c"># TODO 3，在每次执行工具之后</span>
+log(<span class="s">"tool_call"</span>, turn=turn, name=call.name, input=call.input,
+    output=str(output), is_error=is_error)</code></pre>
+  <p style="margin-bottom:0">三处加起来不到十行，但现在你的 Agent 有了两件真正上线前必须具备的能力：不会被长对话拖垮，出问题能查。</p>
+</details>
+
+<h2>还剩什么（先想，别写）</h2>
+
+<p>裁剪是最简单的一种应对方式，粗暴但可控。更精细的做法是<strong>摘要</strong>：不是直接砍掉旧历史，而是用模型把旧历史压缩成一段短总结，替换掉原文再继续对话。想一下：</p>
+
+<ul>
+<li>摘要比裁剪好在哪里？又贵在哪里？（提示：摘要本身也要调用一次模型）</li>
+<li>如果客户说"绝对不能丢任何历史信息"，裁剪和摘要都不满足，你还能给出什么方案？</li>
+</ul>
+
+<h2>检验一下：合上课文再答</h2>
+
+<p>七题，其中<strong>两题回考前两课</strong>。凭记忆答。</p>
+
+<div class="quiz" data-title="第 5 课 · 回忆练习（含回考）">
+<script type="application/json">
+[
+  {
+    "q": "裁剪历史时，为什么不能按「条数」随便砍？",
+    "options": [
+      "会砍出配不上对的调用与结果",
+      "服务端限制了每次能删的条数",
+      "列表切片这个语法本身不支持",
+      "这样裁剪的运算速度会变很慢"
+    ],
+    "answer": 0,
+    "why": "tool_use 和 tool_result 必须成对出现。恰好砍掉半对，服务端会报 400，因为出现了配不上对的块。裁剪单位必须是「一整轮」，也就是 assistant 和它对应的 user 消息一起留下或一起砍掉。"
+  },
+  {
+    "q": "裁剪历史时，messages 的第一条应该怎么处理？",
+    "options": [
+      "永远保留，那是用户最初的问题",
+      "第一个砍掉，因为它年代最久远",
+      "按长度决定，长的留短的直接砍",
+      "转成摘要后再决定留还是不留"
+    ],
+    "answer": 0,
+    "why": "第一条是用户最初的问题，砍掉它模型连自己在回答什么都不知道。裁剪应该从第二条开始，按「一轮一轮」往后砍，永远保留最初的提问。"
+  },
+  {
+    "q": "裁剪历史，省下的成本和付出的代价分别是什么？",
+    "options": [
+      "省调用费用，代价是丢掉上下文",
+      "省调用次数，代价是回复变得慢",
+      "省内存占用，代价换模型更频繁",
+      "省开发时间，代价是账单更贵了"
+    ],
+    "answer": 0,
+    "why": "裁掉的历史里可能藏着模型早些轮次查到的信息，一旦最终答案要回溯到那条信息，回答就可能不完整。这是一笔真实的取舍，要不要做、做到多狠，取决于场景，得摆到桌面上跟客户讲清楚。"
+  },
+  {
+    "q": "换成结构化日志（一行一个 JSON），主要换的是什么？",
+    "options": [
+      "输出的去处，代码结构基本不用变",
+      "整个循环的骨架，要重新设计一遍",
+      "工具执行的顺序，改成先记录后执行",
+      "错误处理的方式，改用日志代替异常"
+    ],
+    "answer": 0,
+    "why": "print() 换成 log() 之后，格式统一成一行一个 JSON，以后接真实的日志系统时，只需要把 log() 内部的实现换掉，调用它的地方一行都不用改。这是接口先留对、内部以后再升级的一个具体例子。"
+  },
+  {
+    "q": "回考第 4 课。工具执行时抛出异常，正确的处理方式是什么？",
+    "options": [
+      "接住这次异常，把错误报回给模型",
+      "让异常直接冒出循环，程序崩溃掉",
+      "忽略这次调用，什么也不返回回去",
+      "换一个更贵的模型供应商再重试"
+    ],
+    "answer": 0,
+    "why": "把异常包成字符串塞进 tool_result 的 content，is_error 设为 True 报回去。这一课的日志刚好把这个信息也记下来：is_error 是每条 tool_call 日志里都要带的字段。"
+  },
+  {
+    "q": "回考第 3 课。一轮里模型要求调用了两个工具，该怎么处理？",
+    "options": [
+      "全部执行，结果放进同一条消息",
+      "只处理第一个，其余那轮不回应",
+      "挑一个更像是对的，执行那一个",
+      "报错给模型，让它下一轮别这样"
+    ],
+    "answer": 0,
+    "why": "全部执行，所有 tool_result 块放进同一条 user 消息的 content 列表里。这条和今天的裁剪逻辑是同一类原则：messages 里的结构有它自己的完整性要求，不能凭直觉去切。"
+  },
+  {
+    "q": "<code>log(\"tool_call\", name=call.name, **more)</code> 这种写法里，<code>**more</code> 的作用是什么？",
+    "options": [
+      "把多个关键字参数收集或展开成一个字典",
+      "让函数可以不传参数直接被调用一次",
+      "强制要求调用者必须传够所有的参数",
+      "把参数按字母顺序重新排列后再传入"
+    ],
+    "answer": 0,
+    "why": "**在参数收集端把关键字参数收集成 dict，在调用端把 dict 展开成关键字参数，第 1 课的 fn(**call.input) 用的是后一种用法，这里是同一个符号的另一半。TS 里最接近的类比是对象展开 { ...fields }。"
+  }
+]
+</script>
+</div>
+
+<h2>今天的主要阅读</h2>
+
+<p>没有新的外部链接。今天的裁剪逻辑纯粹是列表操作，用你已经会的 Python 就能验证：</p>
+
+<pre><code>python -c <span class="s">"m=[1,2,3,4,5]; print(m[:1] + m[1:][2:])"</span></code></pre>
+
+<p>这行会打印 <code>[1, 4, 5]</code>，和 <code>trim_history</code> 里那一步做的事完全一样，只是换成了数字。想不清楚裁剪逻辑时，先拿这种简化过的假数据在 <code>python3</code> 交互模式里试一遍，比直接改真实代码调试快得多。</p>
+
+<div class="ask">
+  <p style="margin-bottom:0"><strong>我是你的老师，随时来问。</strong><br>
+  这一课的报错大多是切片位置或步长错了，贴代码给我时把 key 删掉。<br>
+  特别推荐问：<strong>「裁剪之后模型的回答到底变成什么样」</strong>（把输出贴来，我们一起看信息丢在哪一步）、<strong>「摘要具体怎么实现」</strong>（下一课的候选内容，现在聊聊也行）、<strong>「这套日志接到真实项目的日志系统要改哪几行」</strong>。</p>
+</div>
+
+<div class="footer">
+  <h3>下一课会讲什么</h3>
+  <p>第 3 课埋下的四个问题今天全部处理完了。接下来默认往<strong>你的目标</strong>上靠一步：把这个 Agent 接上一个真实的 HTTP 接口，让前端能通过流式输出（SSE）看到它在"思考"和"调用工具"。这是<a href="../MISSION.md">端到端交付</a>缺的最后一块，也是你前端强项能直接派上用场的一课。</p>
+
+  <h3>本课相关</h3>
+  <p>
+    <a href="0003-real-tool-loop.html">第 3 课 · 让真模型自己决定调哪个工具</a><br>
+    <a href="0004-resilient-agent.html">第 4 课 · 让 Agent 扛得住真实世界</a><br>
+    <a href="../reference/tool-use-protocol.html">参考 · 工具调用协议速查</a><br>
+    <a href="../reference/glossary.html">参考 · 术语表</a>　·　<a href="../reference/python-for-ts-devs.html">参考 · Python 速查</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+</div>
+
+</body>
+</html>

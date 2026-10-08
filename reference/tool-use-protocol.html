@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>参考 · 工具调用协议速查</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+
+<p class="breadcrumb">参考文档 · 协议速查</p>
+
+<h1>工具调用协议速查</h1>
+<p class="subtitle">一次工具调用在 <code>messages</code> 里到底长什么样。字段名全部取自 SDK 类型定义。</p>
+<p class="meta"><span>设计为可打印</span><span>字段已用 <code>inspect</code> 核对</span><span>SDK 0.121.0</span></p>
+
+<div class="callout">
+  <span class="label">一句话概括</span>
+  <p style="margin-bottom:0">模型<strong>请求</strong>调用工具（<code>tool_use</code>），你的代码<strong>执行</strong>，你把结果<strong>报回</strong>（<code>tool_result</code>）。<br>
+  三个动作，两条消息，靠一个 <code>id</code> 串起来。</p>
+</div>
+
+<h2>完整往返：四步</h2>
+
+<table class="wide">
+<thead><tr><th style="width:8%">步</th><th style="width:16%">谁</th><th>messages 里新增的内容</th></tr></thead>
+<tbody>
+<tr>
+  <td>1</td><td>你</td>
+  <td><code>{"role": "user", "content": "杭州天气怎么样？"}</code><br>
+  请求里同时带上 <code>tools=[...]</code></td>
+</tr>
+<tr>
+  <td>2</td><td>模型</td>
+  <td><code>stop_reason == "tool_use"</code>，<code>content</code> 里出现 <code>tool_use</code> 块。<br>
+  <strong>把整个 <code>resp.content</code> 原样追加为 <code>assistant</code> 消息。</strong></td>
+</tr>
+<tr>
+  <td>3</td><td>你</td>
+  <td>执行函数，把结果包成 <code>tool_result</code> 块，<br>
+  追加为 <strong><code>role: "user"</code></strong> 的消息（不是 assistant）</td>
+</tr>
+<tr>
+  <td>4</td><td>模型</td>
+  <td>带着完整历史再问一次。它可能给最终答案（<code>end_turn</code>），<br>
+  也可能要求再调一个工具（回到第 2 步）</td>
+</tr>
+</tbody>
+</table>
+
+<h2>三种结构的字段</h2>
+
+<h3>工具声明（放进 <code>tools=[...]</code>）</h3>
+
+<pre><code>{
+    <span class="s">"name"</span>: <span class="s">"get_weather"</span>,                  <span class="c"># 必填。要和你的查表键一致</span>
+    <span class="s">"description"</span>: <span class="s">"查询某城市天气。当用户问到天气时使用。"</span>,
+    <span class="s">"input_schema"</span>: {                        <span class="c"># 必填。标准 JSON Schema</span>
+        <span class="s">"type"</span>: <span class="s">"object"</span>,
+        <span class="s">"properties"</span>: {
+            <span class="s">"city"</span>: {<span class="s">"type"</span>: <span class="s">"string"</span>, <span class="s">"description"</span>: <span class="s">"城市名"</span>},
+        },
+        <span class="s">"required"</span>: [<span class="s">"city"</span>],
+    },
+}</code></pre>
+
+<p>技术上只有 <code>name</code> 和 <code>input_schema</code> 必填，但<strong>省掉 <code>description</code> 等于让模型盲选</strong>。
+JSON Schema 常用类型名：<code>string</code>、<code>number</code>、<code>integer</code>、<code>boolean</code>、<code>array</code>、<code>object</code>。</p>
+
+<h3><code>tool_use</code> 块（模型给你的，是<strong>对象</strong>，用点号取值）</h3>
+
+<table>
+<thead><tr><th>字段</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>.id</code></td><td>本次调用的唯一标识。<strong>报结果时必须原样带回</strong></td></tr>
+<tr><td><code>.name</code></td><td>工具名，用它查你的函数表</td></tr>
+<tr><td><code>.input</code></td><td>参数，是一个 dict。用 <code>fn(**block.input)</code> 展开调用</td></tr>
+<tr><td><code>.type</code></td><td>固定为 <code>"tool_use"</code></td></tr>
+</tbody>
+</table>
+
+<h3><code>tool_result</code> 块（你给模型的，是<strong>字典</strong>）</h3>
+
+<pre><code>{
+    <span class="s">"type"</span>: <span class="s">"tool_result"</span>,        <span class="c"># 必填</span>
+    <span class="s">"tool_use_id"</span>: block.id,      <span class="c"># 必填。和上面的 .id 配对</span>
+    <span class="s">"content"</span>: str(result),       <span class="c"># 字符串。数字要 str() 一下</span>
+    <span class="s">"is_error"</span>: <span class="k">False</span>,             <span class="c"># 可选。工具报错时设 True</span>
+}</code></pre>
+
+<div class="callout trap">
+  <span class="label">方向不对称，别记混</span>
+  <p style="margin-bottom:0">模型给你的块是 <strong>SDK 对象</strong>，取值用点号：<code>block.input</code>。<br>
+  你给模型的块是 <strong>普通 dict</strong>，构造用键：<code>{"tool_use_id": ...}</code>。<br>
+  还有个不对称：字段名一个叫 <code>id</code>，一个叫 <code>tool_use_id</code>。</p>
+</div>
+
+<h2><code>stop_reason</code> 的取值</h2>
+
+<p>循环的判断依据。以下是 SDK 类型定义里的完整列表：</p>
+
+<table class="wide">
+<thead><tr><th style="width:30%">值</th><th>含义与该做什么</th></tr></thead>
+<tbody>
+<tr><td><code>"tool_use"</code></td><td>要求调工具。<strong>执行后继续循环</strong></td></tr>
+<tr><td><code>"end_turn"</code></td><td>说完了。<strong>退出循环</strong>，这是正常终点</td></tr>
+<tr><td><code>"max_tokens"</code></td><td>被 <code>max_tokens</code> 截断了。回答不完整，要么调大，要么当失败处理</td></tr>
+<tr><td><code>"stop_sequence"</code></td><td>撞上了你设的 <code>stop_sequences</code></td></tr>
+<tr><td><code>"refusal"</code></td><td>模型拒绝回答</td></tr>
+<tr><td><code>"pause_turn"</code></td><td>长任务中途暂停，需要你把它原样续上</td></tr>
+<tr><td><code>"model_context_window_exceeded"</code></td><td>历史超出上下文窗口。必须裁剪或摘要</td></tr>
+</tbody>
+</table>
+
+<p>写循环时<strong>不要判断 <code>== "end_turn"</code> 才退出</strong>。用 <code>!= "tool_use"</code> 退出，这样上面那些异常情况都会落进退出分支，而不是让循环空转。</p>
+
+<h2>一轮可能有多个工具调用</h2>
+
+<p>模型可以在同一轮里要求调好几个工具（并行）。所以：</p>
+
+<ul>
+<li><code>tool_use</code> 块要用<strong>列表推导式全部筛出来</strong>，不能只取第一个</li>
+<li>所有 <code>tool_result</code> 块<strong>放进同一条 user 消息</strong>的 <code>content</code> 列表里</li>
+<li>少报一个，服务端就会报错</li>
+</ul>
+
+<pre><code>calls = [b <span class="k">for</span> b <span class="k">in</span> resp.content <span class="k">if</span> b.type == <span class="s">"tool_use"</span>]
+
+results = [
+    {<span class="s">"type"</span>: <span class="s">"tool_result"</span>, <span class="s">"tool_use_id"</span>: c.id, <span class="s">"content"</span>: str(TOOLS[c.name](**c.input))}
+    <span class="k">for</span> c <span class="k">in</span> calls
+]
+
+messages.append({<span class="s">"role"</span>: <span class="s">"assistant"</span>, <span class="s">"content"</span>: resp.content})
+messages.append({<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: results})</code></pre>
+
+<h2>报错对照表</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">现象</th><th>原因</th></tr></thead>
+<tbody>
+<tr><td>400，说 <code>tool_result</code> 找不到对应的 <code>tool_use</code></td><td>忘了把 <code>assistant</code> 那一轮追加回 <code>messages</code></td></tr>
+<tr><td>400，说少了 <code>tool_result</code></td><td>模型一轮要了多个工具，你只报了一个</td></tr>
+<tr><td><code>KeyError</code></td><td>声明里的 <code>name</code> 和函数表的键不一致</td></tr>
+<tr><td><code>TypeError</code>，参数不匹配</td><td><code>input_schema</code> 的属性名和 Python 函数的参数名不一致</td></tr>
+<tr><td>模型该用工具却不用</td><td><code>description</code> 太含糊。这是提示词问题，不是代码问题</td></tr>
+<tr><td>模型选错了工具</td><td>两个工具的 <code>description</code> 界限不清</td></tr>
+<tr><td><code>AttributeError</code>，某块没有 <code>.text</code></td><td>取值前没按 <code>type</code> 筛。思考块没有 <code>.text</code></td></tr>
+</tbody>
+</table>
+
+<h2>工具报错怎么办</h2>
+
+<p>不要让异常冒出循环。<strong>把错误当成结果报回去</strong>，模型往往能自己改正（比如换个参数重试）：</p>
+
+<pre><code><span class="k">try</span>:
+    output = TOOLS[call.name](**call.input)
+    is_error = <span class="k">False</span>
+<span class="k">except</span> Exception <span class="k">as</span> e:
+    output = f<span class="s">"工具执行失败：{e}"</span>
+    is_error = <span class="k">True</span>
+
+results.append({
+    <span class="s">"type"</span>: <span class="s">"tool_result"</span>,
+    <span class="s">"tool_use_id"</span>: call.id,
+    <span class="s">"content"</span>: str(output),
+    <span class="s">"is_error"</span>: is_error,
+})</code></pre>
+
+<p>这是 Agent 可靠性的核心手法之一：<strong>把失败变成模型能读懂的输入</strong>，而不是让程序崩掉。</p>
+
+<div class="footer">
+  <h3>相关</h3>
+  <p>
+    <a href="glossary.html">参考 · 术语表</a><br>
+    <a href="python-for-ts-devs.html">参考 · 给 TypeScript 开发者的 Python 速查</a><br>
+    <a href="../lessons/0003-real-tool-loop.html">第 3 课 · 让真模型自己决定调哪个工具</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+  <p>字段名以 <a href="https://github.com/anthropics/anthropic-sdk-python">官方 SDK 仓库</a> 为准。本机 Anthropic 文档站不可达，
+  最可靠的查法是装好包后直接读本地源码。</p>
+</div>
+
+</body>
+</html>

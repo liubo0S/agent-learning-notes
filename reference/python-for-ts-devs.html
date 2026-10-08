@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>参考 · 给 TypeScript 开发者的 Python 速查</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+
+<p class="breadcrumb">参考文档 · 速查表</p>
+
+<h1>给 TypeScript 开发者的 Python 速查</h1>
+<p class="subtitle">概念你已经有了，缺的只是写法。这一页是查询用的，不是读一遍就丢的。</p>
+<p class="meta"><span>设计为可打印</span><span>随课程持续修订</span><span>一级来源：<a href="https://docs.python.org/3/tutorial/">Python 官方教程</a></span></p>
+
+<div class="callout">
+  <span class="label">先记住这三条</span>
+  <p><strong>1. 缩进代替花括号。</strong>块的开头用 <code>:</code>，块的范围由缩进决定。用 4 个空格，不要混用 Tab。</p>
+  <p><strong>2. 没有变量声明关键字。</strong><code>const</code> / <code>let</code> 一律省掉，直接 <code>x = 1</code>。</p>
+  <p style="margin-bottom:0"><strong>3. <code>this</code> 变成显式的 <code>self</code>，</strong>而且必须写成方法的第一个参数。</p>
+</div>
+
+<h2>变量与函数</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">TypeScript</th><th>Python</th></tr></thead>
+<tbody>
+<tr><td><code>const x = 1</code></td><td><code>x = 1</code>　（无常量；约定用 <code>X_MAX = 1</code> 表示别改）</td></tr>
+<tr><td><code>let items: string[] = []</code></td><td><code>items: list[str] = []</code></td></tr>
+<tr><td><code>function add(a: number, b: number): number {}</code></td><td><code>def add(a: int, b: int) -> int:</code></td></tr>
+<tr><td><code>(a, b) =&gt; a + b</code></td><td><code>lambda a, b: a + b</code>　（只能是单个表达式）</td></tr>
+<tr><td><code>function f(a = 1) {}</code></td><td><code>def f(a=1):</code></td></tr>
+<tr><td><code>function f(...args) {}</code></td><td><code>def f(*args):</code>　（收成 tuple）</td></tr>
+<tr><td><code>function f(opts: {a: number}) {}</code></td><td><code>def f(**kwargs):</code>　（收成 dict）</td></tr>
+<tr><td><code>f(...arr)</code></td><td><code>f(*arr)</code></td></tr>
+<tr><td><code>f({...obj})</code></td><td><code>f(**obj)</code>　（展开成命名参数）</td></tr>
+<tr><td><code>const [a, b] = arr</code></td><td><code>a, b = arr</code></td></tr>
+<tr><td><code>console.log(a, b)</code></td><td><code>print(a, b)</code></td></tr>
+</tbody>
+</table>
+
+<h2>数据结构</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">TypeScript</th><th>Python</th></tr></thead>
+<tbody>
+<tr><td><code>{ name: "add" }</code>　对象</td><td><code>{"name": "add"}</code>　<strong>dict</strong>（键要带引号）</td></tr>
+<tr><td><code>[1, 2, 3]</code>　数组</td><td><code>[1, 2, 3]</code>　<strong>list</strong></td></tr>
+<tr><td><code>readonly [1, 2]</code>　只读元组</td><td><code>(1, 2)</code>　<strong>tuple</strong>（不可变）</td></tr>
+<tr><td><code>new Set([1, 2])</code></td><td><code>{1, 2}</code>　<strong>set</strong></td></tr>
+<tr><td><code>arr.length</code>　/　<code>Object.keys(o).length</code></td><td><code>len(arr)</code>　/　<code>len(o)</code></td></tr>
+<tr><td><code>arr.push(x)</code></td><td><code>arr.append(x)</code></td></tr>
+<tr><td><code>arr.slice(1, 3)</code></td><td><code>arr[1:3]</code></td></tr>
+<tr><td><code>arr.at(-1)</code></td><td><code>arr[-1]</code></td></tr>
+<tr><td><code>[...a, ...b]</code></td><td><code>[*a, *b]</code>　或　<code>a + b</code></td></tr>
+<tr><td><code>{...a, ...b}</code></td><td><code>{**a, **b}</code></td></tr>
+<tr><td><code>arr.includes(x)</code></td><td><code>x in arr</code></td></tr>
+<tr><td><code>Object.keys(o)</code>　/　<code>Object.values(o)</code></td><td><code>o.keys()</code>　/　<code>o.values()</code></td></tr>
+<tr><td><code>Object.entries(o)</code></td><td><code>o.items()</code></td></tr>
+<tr><td><code>o?.k</code></td><td><code>o.get("k")</code>　（缺键返回 <code>None</code>，不报错）</td></tr>
+<tr><td><code>o.k ?? d</code></td><td><code>o.get("k", d)</code></td></tr>
+<tr><td><code>"k" in o</code></td><td><code>"k" in o</code>　（写法完全一样）</td></tr>
+<tr><td><code>delete o.k</code></td><td><code>del o["k"]</code></td></tr>
+</tbody>
+</table>
+
+<h2>数组方法 → 推导式</h2>
+
+<p>Python 没有链式的 <code>.map().filter()</code>。等价物是<strong>推导式</strong>（comprehension），可读性更高，是地道写法。</p>
+
+<table class="wide">
+<thead><tr><th style="width:44%">TypeScript</th><th>Python</th></tr></thead>
+<tbody>
+<tr><td><code>arr.map(f)</code></td><td><code>[f(x) for x in arr]</code></td></tr>
+<tr><td><code>arr.filter(p)</code></td><td><code>[x for x in arr if p(x)]</code></td></tr>
+<tr><td><code>arr.map(f).filter(p)</code></td><td><code>[f(x) for x in arr if p(f(x))]</code></td></tr>
+<tr><td><code>arr.some(p)</code></td><td><code>any(p(x) for x in arr)</code></td></tr>
+<tr><td><code>arr.every(p)</code></td><td><code>all(p(x) for x in arr)</code></td></tr>
+<tr><td><code>arr.find(p)</code></td><td><code>next((x for x in arr if p(x)), None)</code></td></tr>
+<tr><td><code>arr.reduce((a, b) =&gt; a + b, 0)</code></td><td><code>sum(arr)</code>　（通用情形用 <code>functools.reduce</code>，但通常写个循环更清楚）</td></tr>
+<tr><td><code>arr.forEach((x, i) =&gt; …)</code></td><td><code>for i, x in enumerate(arr):</code></td></tr>
+<tr><td><code>a.map((x, i) =&gt; [x, b[i]])</code></td><td><code>for x, y in zip(a, b):</code></td></tr>
+<tr><td><code>Object.fromEntries(pairs)</code></td><td><code>{k: v for k, v in pairs}</code>　（字典推导式）</td></tr>
+</tbody>
+</table>
+
+<h2>字符串</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">TypeScript</th><th>Python</th></tr></thead>
+<tbody>
+<tr><td><code>`共 ${n} 条`</code></td><td><code>f"共 {n} 条"</code>　（<strong>f-string</strong>，前缀 f 不能漏）</td></tr>
+<tr><td><code>`${x.toFixed(2)}`</code></td><td><code>f"{x:.2f}"</code>　（格式说明写在冒号后）</td></tr>
+<tr><td><code>arr.join(", ")</code></td><td><code>", ".join(arr)</code>　⚠️ <strong>接收者反过来了</strong></td></tr>
+<tr><td><code>s.split(",")</code></td><td><code>s.split(",")</code></td></tr>
+<tr><td><code>s.trim()</code></td><td><code>s.strip()</code></td></tr>
+<tr><td><code>s.toUpperCase()</code></td><td><code>s.upper()</code></td></tr>
+<tr><td><code>s.startsWith("a")</code></td><td><code>s.startswith("a")</code>　（全小写）</td></tr>
+<tr><td><code>s.replaceAll("a", "b")</code></td><td><code>s.replace("a", "b")</code>　（默认就是全部替换）</td></tr>
+<tr><td><code>s.includes("a")</code></td><td><code>"a" in s</code></td></tr>
+<tr><td><code>JSON.stringify(o)</code></td><td><code>json.dumps(o)</code>　（中文加 <code>ensure_ascii=False</code>）</td></tr>
+<tr><td><code>JSON.parse(s)</code></td><td><code>json.loads(s)</code></td></tr>
+</tbody>
+</table>
+
+<h2>控制流</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">TypeScript</th><th>Python</th></tr></thead>
+<tbody>
+<tr><td><code>if (a) {} else if (b) {} else {}</code></td><td><code>if a:</code> … <code>elif b:</code> … <code>else:</code></td></tr>
+<tr><td><code>c ? a : b</code></td><td><code>a if c else b</code></td></tr>
+<tr><td><code>for (const x of arr) {}</code></td><td><code>for x in arr:</code></td></tr>
+<tr><td><code>for (let i = 0; i &lt; n; i++) {}</code></td><td><code>for i in range(n):</code></td></tr>
+<tr><td><code>while (true) { if (done) break }</code></td><td><code>while True:</code> … <code>break</code></td></tr>
+<tr><td><code>switch (x) { case … }</code></td><td><code>match x:</code> / <code>case …</code>（3.10+），或用 dict 派发</td></tr>
+<tr><td><code>&amp;&amp;</code>　<code>||</code>　<code>!</code></td><td><code>and</code>　<code>or</code>　<code>not</code></td></tr>
+<tr><td><code>null</code>　<code>undefined</code></td><td><code>None</code>　（只有一个）</td></tr>
+<tr><td><code>true</code>　<code>false</code></td><td><code>True</code>　<code>False</code>　（首字母大写）</td></tr>
+<tr><td><code>try {} catch (e) {} finally {}</code></td><td><code>try:</code> / <code>except Exception as e:</code> / <code>finally:</code></td></tr>
+<tr><td><code>throw new Error("x")</code></td><td><code>raise ValueError("x")</code></td></tr>
+<tr><td>空语句块 <code>{}</code></td><td><code>pass</code>　（占位，缩进块不能空）</td></tr>
+</tbody>
+</table>
+
+<h2>模块、类、类型</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">TypeScript</th><th>Python</th></tr></thead>
+<tbody>
+<tr><td><code>import { a } from "./m"</code></td><td><code>from m import a</code></td></tr>
+<tr><td><code>import * as m from "./m"</code></td><td><code>import m</code></td></tr>
+<tr><td><code>export function a() {}</code></td><td>不需要 <code>export</code>；全部对外可见，<code>_name</code> 表示「内部用」</td></tr>
+<tr><td><code>interface Tool { name: string }</code></td><td><code>class Tool(TypedDict): name: str</code>　（描述普通 dict）</td></tr>
+<tr><td><code>class Tool { constructor(public name: string) {} }</code></td><td><code>@dataclass</code> + <code>class Tool: name: str</code></td></tr>
+<tr><td><code>this.name</code></td><td><code>self.name</code>　（<code>self</code> 必须显式写进参数）</td></tr>
+<tr><td><code>typeof x</code>　/　<code>x instanceof T</code></td><td><code>type(x)</code>　/　<code>isinstance(x, T)</code></td></tr>
+<tr><td><code>x === undefined</code></td><td><code>x is None</code></td></tr>
+<tr><td><code>string | null</code></td><td><code>str | None</code></td></tr>
+<tr><td><code>Record&lt;string, number&gt;</code></td><td><code>dict[str, int]</code></td></tr>
+</tbody>
+</table>
+
+<h2>异步</h2>
+
+<p>心智模型和 JS 几乎一致，只有一个额外要求：必须有一个入口把事件循环跑起来。Node 里 top-level await 能用，Python 里要显式 <code>asyncio.run()</code>。</p>
+
+<pre><code><span class="k">import</span> asyncio
+
+<span class="k">async def</span> fetch(n):
+    <span class="k">await</span> asyncio.sleep(<span class="s">1</span>)
+    <span class="k">return</span> n * <span class="s">2</span>
+
+<span class="k">async def</span> main():
+    <span class="c"># TS: await Promise.all([fetch(1), fetch(2)])</span>
+    results = <span class="k">await</span> asyncio.gather(fetch(<span class="s">1</span>), fetch(<span class="s">2</span>))
+    print(results)          <span class="c"># [2, 4]</span>
+
+asyncio.run(main())         <span class="c"># ← 入口，忘了写就什么都不会发生</span></code></pre>
+
+<h2>工程链路对照</h2>
+
+<table class="wide">
+<thead><tr><th style="width:44%">Node 生态</th><th>Python 生态</th></tr></thead>
+<tbody>
+<tr><td><code>npm install pkg</code></td><td><code>uv add pkg</code>　（或传统的 <code>pip install pkg</code>）</td></tr>
+<tr><td><code>package.json</code></td><td><code>pyproject.toml</code></td></tr>
+<tr><td><code>node_modules/</code>　（每个项目一份）</td><td><code>.venv/</code>　（每个项目一个虚拟环境，作用相同）</td></tr>
+<tr><td><code>package-lock.json</code></td><td><code>uv.lock</code>　/　<code>requirements.txt</code></td></tr>
+<tr><td><code>tsc --noEmit</code>　类型检查</td><td><code>mypy .</code>　或　<code>pyright</code></td></tr>
+<tr><td>Prettier + ESLint</td><td><code>ruff format</code> + <code>ruff check</code>　（一个工具两件事）</td></tr>
+<tr><td><code>vitest</code> / <code>jest</code></td><td><code>pytest</code></td></tr>
+<tr><td><code>node index.js</code></td><td><code>python3 main.py</code></td></tr>
+</tbody>
+</table>
+
+<h2>前端迁移者的七个坑</h2>
+
+<p>这些不是语法差异，是<strong>行为</strong>差异。语法差异会报错，行为差异会静默地给出错误结果。</p>
+
+<div class="callout trap">
+  <span class="label">坑 1 · 空列表和空字典是假值</span>
+  <p style="margin-bottom:0">JS 里 <code>if ([])</code> 成立，Python 里<strong>不成立</strong>。<code>""</code>、<code>0</code>、<code>None</code>、<code>[]</code>、<code>{}</code>、<code>()</code>、<code>set()</code> 全是假值。好消息：<code>if items:</code> 就是「非空」的地道写法，不用写 <code>len(items) &gt; 0</code>。</p>
+</div>
+
+<div class="callout trap">
+  <span class="label">坑 2 · 可变默认参数在多次调用间共享</span>
+  <pre style="margin-bottom:0"><code><span class="k">def</span> add_msg(msg, history=[]):   <span class="c"># ⚠️ 这个 [] 只创建一次！</span>
+    history.append(msg)
+    <span class="k">return</span> history
+
+add_msg(<span class="s">"a"</span>)   <span class="c"># ['a']</span>
+add_msg(<span class="s">"b"</span>)   <span class="c"># ['a', 'b'] ← 上次的还在</span>
+
+<span class="c"># 正确写法：</span>
+<span class="k">def</span> add_msg(msg, history=<span class="k">None</span>):
+    <span class="k">if</span> history <span class="k">is None</span>:
+        history = []</code></pre>
+</div>
+
+<div class="callout trap">
+  <span class="label">坑 3 · <code>is</code> 不是 <code>===</code></span>
+  <p style="margin-bottom:0"><code>==</code> 比较<strong>值</strong>，<code>is</code> 比较<strong>是不是同一个对象</strong>（相当于 JS 里对象的 <code>===</code>）。判断相等永远用 <code>==</code>；<code>is</code> 只用于 <code>None</code>、<code>True</code>、<code>False</code>。<code>"ab" is "ab"</code> 有时为真有时为假，取决于解释器优化，所以别用。</p>
+</div>
+
+<div class="callout trap">
+  <span class="label">坑 4 · <code>/</code> 永远返回浮点</span>
+  <p style="margin-bottom:0"><code>6 / 3</code> 得到 <code>2.0</code> 而不是 <code>2</code>。整除用 <code>//</code>。注意 <code>//</code> 是向下取整不是截断：<code>-7 // 2</code> 得到 <code>-4</code>，而 JS 的 <code>Math.trunc(-7/2)</code> 是 <code>-3</code>。</p>
+</div>
+
+<div class="callout trap">
+  <span class="label">坑 5 · 没有块级作用域</span>
+  <p style="margin-bottom:0">作用域的单位是<strong>函数</strong>，不是花括号。<code>if</code> 或 <code>for</code> 里赋的值，出了块照样能用；循环变量在循环结束后依然存在。这既方便也容易写出意外依赖。</p>
+</div>
+
+<div class="callout trap">
+  <span class="label">坑 6 · <code>+</code> 不做隐式类型转换</span>
+  <p style="margin-bottom:0"><code>"共 " + 3</code> 直接抛 <code>TypeError</code>，不会得到 <code>"共 3"</code>。要么 <code>f"共 {3}"</code>，要么 <code>"共 " + str(3)</code>。对写惯 JS 的人来说这是好事：错误提前暴露了。</p>
+</div>
+
+<div class="callout trap">
+  <span class="label">坑 7 · 赋值不复制</span>
+  <p style="margin-bottom:0"><code>b = a</code> 让两个名字指向同一个 list（和 JS 一样）。要副本用 <code>b = a[:]</code>、<code>list(a)</code>，深拷贝用 <code>copy.deepcopy(a)</code>。函数里 <code>append</code> 参数列表，会改到调用方的数据。</p>
+</div>
+
+<div class="footer">
+  <h3>相关</h3>
+  <p>
+    <a href="../lessons/0001-agent-loop.html">第 1 课 · Agent 的心脏是一个 while 循环</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+  <p>拿不准的时候，以 <a href="https://docs.python.org/3/tutorial/">Python 官方教程</a> 为准，而不是这张表。这张表为速度服务，官方文档为正确性服务。</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Python 虚拟环境（相当于 node_modules）
+.venv/
+venv/
+
+# 字节码缓存
+__pycache__/
+*.py[cod]
+
+# 工具缓存
+.ruff_cache/
+.mypy_cache/
+
+# 密钥绝不进版本库
+.env
+*.key
+
+# 编辑器 / 系统
+.DS_Store
+.idea/

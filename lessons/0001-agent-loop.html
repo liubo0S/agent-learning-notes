@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 课 · Agent 的心脏是一个 while 循环</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<p class="breadcrumb">第 1 课</p>
+
+<h1>Agent 的心脏是一个 while 循环</h1>
+<p class="subtitle">你已经会 <code>for</code> 和 <code>if</code>。今天加三个新语法，把 Claude Code 的内核亲手写出来。</p>
+<p class="meta">
+  <span>约 25 分钟</span>
+  <span>产出：<code>exercises/01_agent_loop.py</code></span>
+  <span>不联网、不装依赖、不需要 API key</span>
+</p>
+
+<h2>为什么从这里开始</h2>
+
+<p>你每天在用 Claude Code。它读文件、跑命令、改代码，看起来像个黑盒。</p>
+
+<p>剥掉工程外壳之后，里面是<strong>一个循环加一张函数表</strong>。就这样。今天你会把这个内核写出来，从此整个领域对你都有了坐标原点：之后学的每一个框架、每一篇论文、每一次报价，都是在往这个循环上加东西。</p>
+
+<p>而这直接指向你的目标。你要独立接活交付，<a href="../MISSION.md">而不是拼一个 demo</a>。框架会把这个循环藏起来，可是客户的怪需求全都落在循环里：这一步要不要人工确认、工具报错了怎么退、跑到第几轮该停下来收手。<strong>能自己掌控循环的人，才有报价的底气。</strong></p>
+
+<h2>一个 LLM 其实什么都做不了</h2>
+
+<p>先接受这件事：模型唯一的能力是<strong>把文字变成文字</strong>。它不能查天气、不能读你的文件、不能发邮件。</p>
+
+<p>所谓「工具调用」，实际发生的是这样一件事：</p>
+
+<ol class="steps">
+  <li>你在提示里告诉模型：你可以用 <code>get_weather</code>，参数是城市名。</li>
+  <li>模型输出一段结构化文字，意思是「我想调用 <code>get_weather</code>，参数填杭州」。<strong>它并没有真的去查。</strong></li>
+  <li><strong>你的代码</strong>看懂这段文字，真的去执行那个函数，拿到结果。</li>
+  <li>你把结果作为新的输入塞回对话，再问模型一次：现在你想干什么？</li>
+  <li>重复，直到模型不再要求调工具，而是直接给出答案。</li>
+</ol>
+
+<p>第 5 步那个「重复」，就是 Agent 和普通一次性调用的全部区别。Anthropic 在 <a href="https://www.anthropic.com/engineering/building-effective-agents">Building Effective Agents</a> 里把这条线画得很清楚（以下是转述，非原文引用）：如果执行路径是你事先用代码写死的，那叫 <strong>workflow</strong>；只有当模型自己决定下一步用什么工具、什么时候收手，才配叫 <strong>agent</strong>。</p>
+
+<div class="callout">
+  <span class="label">今天要装进脑子的一句话</span>
+  <p style="margin-bottom:0">Agent ＝ <strong>循环</strong> ＋ <strong>一张工具表</strong> ＋ <strong>一个退出条件</strong>。<br>
+  工具是普通函数，循环是 <code>while True</code>，退出条件是模型说「我说完了」。</p>
+</div>
+
+<h2>今天要用的三个新语法</h2>
+
+<p>概念你都有，只是写法不同。完整对照见 <a href="../reference/python-for-ts-devs.html">给 TypeScript 开发者的 Python 速查</a>，这里只挑今天用得上的。</p>
+
+<table class="wide">
+<thead><tr><th style="width:42%">你已经会的 TypeScript</th><th>今天要写的 Python</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>function add(a, b) {<br>&nbsp;&nbsp;return a + b<br>}</code></td>
+  <td><code>def add(a, b):<br>&nbsp;&nbsp;&nbsp;&nbsp;return a + b</code><br><span class="c">花括号换成冒号加缩进</span></td>
+</tr>
+<tr>
+  <td><code>const TOOLS = { add }</code><br><code>TOOLS["add"]</code></td>
+  <td><code>TOOLS = {"add": add}</code><br><span class="c">键要带引号；值是函数本身，不加括号</span></td>
+</tr>
+<tr>
+  <td><code>while (true) {<br>&nbsp;&nbsp;if (done) break<br>}</code></td>
+  <td><code>while True:</code><br><code>&nbsp;&nbsp;&nbsp;&nbsp;if done:</code><br><code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;break</code><br><span class="c">True 首字母大写</span></td>
+</tr>
+<tr>
+  <td><code>fn(...args)</code>　展开</td>
+  <td><code>fn(**args)</code><br><span class="c">把 dict 展开成命名参数：<br><code>fn(**{"a": 1})</code> 等价于 <code>fn(a=1)</code></span></td>
+</tr>
+<tr>
+  <td><code>`${city}今天晴`</code></td>
+  <td><code>f"{city}今天晴"</code><br><span class="c">前缀 f 漏掉就不会插值，只会原样输出</span></td>
+</tr>
+</tbody>
+</table>
+
+<h2>动手：把循环写出来</h2>
+
+<p>骨架已经准备好了。假模型、假工具都写死了，你只需要补三处，注意力全部留给循环本身。</p>
+
+<ol class="steps">
+  <li>打开 <code>exercises/01_agent_loop.py</code>。先从上到下读一遍，看懂三层结构：工具、假模型、循环。</li>
+  <li>补 <strong>TODO 1</strong>：把两个函数注册进 <code>TOOLS</code>。</li>
+  <li>补 <strong>TODO 2</strong>：模型说完了就打印并 <code>break</code>。</li>
+  <li>补 <strong>TODO 3</strong>：否则查表、调用、打印、把结果 <code>append</code> 进 <code>history</code>。</li>
+  <li>删掉那行 <code>raise SystemExit(...)</code>，然后运行：<br>
+    <code>python3 exercises/01_agent_loop.py</code></li>
+</ol>
+
+<p>写对了，你会看到<strong>正好这三行</strong>（我已经跑过一遍验证过）：</p>
+
+<pre><code>[工具] get_weather -&gt; 杭州今天晴，26 度
+[工具] add -&gt; 30
+[回答] 杭州今天晴，26 度；再加 4 度是 30 度。</code></pre>
+
+<p>看到这三行的时候请停一秒：这就是一次完整的 Agent 运行。模型连着调了两个工具，拿到结果，然后自己决定收手。你手上的 Claude Code 做的事，在结构上和它一模一样。</p>
+
+<details>
+  <summary>卡住了？先看提示，别急着看答案</summary>
+  <p><strong>报 <code>KeyError</code>：</strong>TOOLS 的键要和 <code>FAKE_RESPONSES</code> 里的 <code>name</code> 完全一致，是 <code>"get_weather"</code> 不是 <code>"getWeather"</code>。</p>
+  <p><strong>报「模型被调用的次数超过预设」：</strong>循环没能 break。检查 TODO 2 的判断是不是写成了 <code>=</code>（赋值）而不是 <code>==</code>（比较）。</p>
+  <p><strong>程序卡住不动：</strong><code>history.append(result)</code> 漏了。假模型靠 <code>history</code> 的长度决定下一步，历史不增长它就永远返回同一个动作。</p>
+  <p style="margin-bottom:0"><strong>报 <code>TypeError: add() takes 2 positional arguments</code>：</strong><code>fn(step["args"])</code> 少了 <code>**</code>，把整个 dict 当成一个参数传进去了。</p>
+</details>
+
+<details>
+  <summary>参考答案（先自己写完再打开，这个顺序很重要）</summary>
+<pre><code>TOOLS = {<span class="s">"get_weather"</span>: get_weather, <span class="s">"add"</span>: add}
+
+
+<span class="k">def</span> run_agent():
+    history = []
+
+    <span class="k">while True</span>:
+        step = fake_model(history)
+
+        <span class="k">if</span> step[<span class="s">"type"</span>] == <span class="s">"text"</span>:
+            print(<span class="s">"[回答]"</span>, step[<span class="s">"text"</span>])
+            <span class="k">break</span>
+
+        fn = TOOLS[step[<span class="s">"name"</span>]]
+        result = fn(**step[<span class="s">"args"</span>])
+        print(<span class="s">"[工具]"</span>, step[<span class="s">"name"</span>], <span class="s">"->"</span>, result)
+        history.append(result)</code></pre>
+  <p style="margin-bottom:0">十一行。这就是 Agent 的心脏。剩下的一切都是在往它身上加：真模型、错误处理、并发、权限、成本控制。</p>
+</details>
+
+<div class="callout trap">
+  <span class="label">顺手记一个前端迁移者的坑</span>
+  <p style="margin-bottom:0">你可能想写 <code>if history:</code> 来判断历史是否为空。在 Python 里这是<strong>地道写法</strong>，但要注意行为和 JS 不同：空列表 <code>[]</code> 和空字典 <code>{}</code> 在 Python 里是<strong>假值</strong>，而 JS 里 <code>if ([])</code> 是成立的。这个差异会在 Agent 代码里反复咬人，因为消息历史、工具参数几乎都是列表和字典。<a href="../reference/python-for-ts-devs.html">速查表的「七个坑」</a>里有全部七条。</p>
+</div>
+
+<h2>检验一下：合上课文再答</h2>
+
+<p>下面五题是<strong>回忆练习</strong>，不是理解测试。请先把这一页往上滚走，凭记忆答。答错比答对更有价值，错的地方就是今天真正该问我的地方。</p>
+
+<div class="quiz" data-title="第 1 课 · 回忆练习">
+<script type="application/json">
+[
+  {
+    "q": "Agent 与「单次调用一下 LLM」最本质的差别是什么？",
+    "options": [
+      "把工具结果喂回模型继续循环",
+      "使用参数量更大的模型来推理",
+      "把提示词写得更长更加详细些",
+      "一次性输出更多的内容与代码"
+    ],
+    "answer": 0,
+    "why": "模型本身只能把文字变成文字。Agent 的关键动作是执行工具、把结果作为新输入送回模型、再让它决定下一步。循环起来之后，模型才有了行动能力。换更大的模型或写更长的提示词都不会让它变成 Agent。"
+  },
+  {
+    "q": "在真实的 Agent 里，工具函数是谁执行的？",
+    "options": [
+      "你自己写的代码，不是模型",
+      "模型自己执行，你收到结果",
+      "由平台的服务器代为执行的",
+      "由操作系统的沙箱负责执行"
+    ],
+    "answer": 0,
+    "why": "这是整个领域最容易搞错的一点。模型只输出一段「我想调用 get_weather，参数是杭州」的结构化文字，真正去执行的是你的代码。所以超时、重试、权限、安全边界全都在你手上，交付时的可靠性责任也在你这边。这正是客户付钱给你的地方。"
+  },
+  {
+    "q": "TypeScript 的对象字面量 <code>{ name: \"add\" }</code>，在 Python 里对应哪个类型？",
+    "options": [
+      "字典，用花括号写键值对",
+      "列表，用方括号写元素项",
+      "元组，用圆括号写固定值",
+      "集合，用花括号写无序项"
+    ],
+    "answer": 0,
+    "why": "dict。两个细节值得记住：键必须带引号，Python 没有裸键写法；dict 和 set 都用花括号，所以空的 <code>{}</code> 是空 dict，空 set 只能写成 <code>set()</code>。"
+  },
+  {
+    "q": "<code>TOOLS[\"add\"]</code> 和 <code>TOOLS.get(\"add\")</code> 在键不存在时的差别？",
+    "options": [
+      "前者会抛异常，后者给空值",
+      "后者会抛异常，前者给空值",
+      "两者行为一致，没有差别的",
+      "前者只能接收字符串类的键"
+    ],
+    "answer": 0,
+    "why": "方括号缺键抛 <code>KeyError</code>；<code>.get()</code> 返回 <code>None</code>，相当于 TS 的 <code>o?.k</code>，想带默认值就写 <code>.get(\"k\", d)</code>，相当于 <code>??</code>。写 Agent 时这个选择很关键：模型会幻觉出不存在的工具名，你得决定是抛错，还是把「没有这个工具」当成结果反馈回模型让它自己纠正。"
+  },
+  {
+    "q": "循环里必须有一个 break 条件，否则会发生什么？",
+    "options": [
+      "模型会被无限次地反复调用",
+      "函数无法向调用方返回结果",
+      "缩进层级会一直不断地加深",
+      "字典里已有的键会被覆盖掉"
+    ],
+    "answer": 0,
+    "why": "这是 Agent 最贵的 bug。真实场景里每一轮都是一次付费的模型调用，失控的循环会直接烧钱。所以生产代码除了「模型说完了」这个出口，一定还要加一个硬上限，比如最多跑 10 轮。这也是你给客户报价时必须算进去的风险。"
+  }
+]
+</script>
+</div>
+
+<h2>今天的主要阅读</h2>
+
+<p><a href="https://www.anthropic.com/engineering/building-effective-agents"><strong>Building Effective Agents</strong></a> — Anthropic 工程博客</p>
+
+<p>只读开头关于 workflow 与 agent 区别的那一段就够了，大约五分钟。后面那些编排模式现在先不用看，等你手写过几个循环之后再回来读，收获会完全不同。</p>
+
+<p class="c">注意：我这台机器目前无法联网，这个链接是凭记忆写下的官方地址，还没验证过。打不开的话告诉我，我们一起从 <a href="https://www.anthropic.com/engineering">anthropic.com/engineering</a> 找。</p>
+
+<div class="ask">
+  <p style="margin-bottom:0"><strong>我是你的老师，随时来问。</strong><br>
+  任何地方卡住、任何一句话觉得可疑、任何「那如果……呢」的念头，直接回到对话里问我。<br>
+  尤其推荐问这三种：<strong>「为什么不是……」</strong>（挑战设计）、<strong>「真实项目里这里会怎么写」</strong>（拉向交付）、<strong>「刚才那题我为什么错了」</strong>（错误最有信息量）。</p>
+</div>
+
+<div class="footer">
+  <h3>下一课会讲什么</h3>
+  <p>取决于你这节课的实际感受，但默认的下一步是：<strong>把假模型换成真的 Claude</strong>。那节课会顺带解决 Python 的环境与依赖问题（<code>.venv</code> 对应你熟悉的 <code>node_modules</code>），以及 API key 怎么放才安全。循环的骨架不会变，你今天写的代码会一直用下去。</p>
+
+  <h3>本课相关</h3>
+  <p>
+    <a href="../reference/python-for-ts-devs.html">参考 · 给 TypeScript 开发者的 Python 速查</a><br>
+    <a href="../MISSION.md">MISSION.md · 为什么学这个</a>　·　<a href="../RESOURCES.md">RESOURCES.md · 可信资源</a>
+  </p>
+</div>
+
+</body>
+</html>

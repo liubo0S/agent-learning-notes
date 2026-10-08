@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 4 课 · 让 Agent 扛得住真实世界</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<p class="breadcrumb">第 4 课　·　<a href="0003-real-tool-loop.html">← 第 3 课</a></p>
+
+<h1>让 Agent 扛得住真实世界</h1>
+<p class="subtitle">第 3 课的 Agent 能跑了。这一课处理它跑不稳的三个原因。</p>
+<p class="meta">
+  <span>约 25 分钟</span>
+  <span>产出：<code>exercises/04_resilient_loop.py</code></span>
+  <span>会真的花钱，几分</span>
+</p>
+
+<h2>先看看它有多脆弱</h2>
+
+<p>把第 3 课那份代码里的 <code>add(a, b)</code> 换成 <code>divide(a, b)</code>，让模型算「10 除以 0」。会发生什么？<code>a / b</code> 抛出 <code>ZeroDivisionError</code>，异常从工具函数一路冒出循环，<strong>整个程序崩掉</strong>。用户看到的是一屏 Python 报错，不是一个「抱歉，这个算不了」的回答。</p>
+
+<p>这不是边缘情况。你交付给客户的 Agent，工具迟早会遇到：参数超出范围、下游服务超时、权限不足、数据库锁住。<strong>一次工具失败就把整个程序拖垮，是不能上线的。</strong></p>
+
+<p>今天处理这四个问题里的前两个（其余两个留给下一课，见课末）：</p>
+
+<table class="wide">
+<thead><tr><th style="width:34%">问题</th><th>今天的答案</th></tr></thead>
+<tbody>
+<tr><td>工具执行时抛异常</td><td><strong>接住它，报回给模型</strong>，不让它冒出循环</td></tr>
+<tr><td>模型编造了不存在的工具名</td><td>顺带解决：查表失败本身就是一种异常</td></tr>
+<tr><td>历史超出上下文窗口</td><td>下一课</td></tr>
+<tr><td>危险操作要不要先问人</td><td><strong>今天也处理</strong>：执行前先确认</td></tr>
+</tbody>
+</table>
+
+<h2>第一件事：把异常变成模型能读的话</h2>
+
+<p>循环骨架不变，只改「执行工具」这一步。核心手法在 <a href="../reference/tool-use-protocol.html">协议速查</a> 已经放了：</p>
+
+<pre><code><span class="k">try</span>:
+    output = TOOLS[call.name](**call.input)
+    is_error = <span class="k">False</span>
+<span class="k">except</span> Exception <span class="k">as</span> e:
+    output = f<span class="s">"工具执行失败：{e}"</span>
+    is_error = <span class="k">True</span></code></pre>
+
+<p>然后把 <code>is_error</code> 也塞进 <code>tool_result</code>：</p>
+
+<pre><code>{
+    <span class="s">"type"</span>: <span class="s">"tool_result"</span>,
+    <span class="s">"tool_use_id"</span>: call.id,
+    <span class="s">"content"</span>: str(output),
+    <span class="s">"is_error"</span>: is_error,   <span class="c"># ← 新增</span>
+}</code></pre>
+
+<div class="callout">
+  <span class="label">为什么不是"捕获异常然后返回一个默认值"</span>
+  <p style="margin-bottom:0">如果你只是 <code>except: output = None</code>，模型会把 <code>None</code> 当成一个正常答案去用，编出一个听起来合理但错误的回复。<strong>把真实的错误信息原样报回去</strong>，模型才有机会自己判断："除数是 0，这题没法算" 或者 "让我换个参数再试一次"。<code>is_error: True</code> 是给模型的明确信号，比让它自己从文字里猜更可靠。</p>
+</div>
+
+<h2>免费获得的第二件事：幻觉工具名</h2>
+
+<p>模型偶尔会编出一个 <code>TOOLS</code> 里根本不存在的工具名（尤其模型换成更弱的那一档时更常见）。查表的那一行 <code>TOOLS[call.name]</code> 会抛 <code>KeyError</code>，<strong>而这正好落进你刚写的 <code>try/except</code> 里</strong>，和其它异常一样被接住、变成一句错误信息报回去。</p>
+
+<p>你不需要专门写一层「检查工具名是否存在」的代码。<strong>把执行整体包进 try/except，顺带就把这个问题解决了。</strong>这是今天最省力的一个收获。</p>
+
+<h2>第三件事：危险操作，执行前先问人</h2>
+
+<p>练习里新增了一个 <code>delete_note</code>（模拟删除笔记）。这类操作一旦执行就<strong>不可逆</strong>，不能完全交给模型自己判断"要不要做"，它的判断依据只是概率，不是责任。</p>
+
+<p>做法很朴素：维护一份"危险工具"名单，执行前用 <code>input()</code> 问一句，人不确认就不执行：</p>
+
+<pre><code>DANGEROUS = {<span class="s">"delete_note"</span>}
+
+<span class="k">if</span> call.name <span class="k">in</span> DANGEROUS:
+    reply = input(f<span class="s">"要执行 {call.name}({call.input}) 吗？(y/n) "</span>)
+    confirmed = reply.strip().lower() == <span class="s">"y"</span>
+<span class="k">else</span>:
+    confirmed = <span class="k">True</span></code></pre>
+
+<p>拒绝时怎么办？<strong>别静默跳过</strong>，还是要报一个 <code>tool_result</code> 回去，只是内容变成"用户拒绝执行此操作"，<code>is_error</code> 设成 <code>True</code>。这样模型知道发生了什么，能对用户说清楚，而不是卡住或者装作没这回事。</p>
+
+<div class="callout trap">
+  <span class="label">这一步在真实项目里会怎么变</span>
+  <p style="margin-bottom:0"><code>input()</code> 只是终端里的教学替代品。接给客户的产品里，"问人"通常是：把这次请求暂停，推一条确认消息到前端，等用户点"确认"按钮，你的后端再继续执行。<strong>机制是一样的：执行前有一个明确的人工确认关口</strong>，只是把 <code>input()</code> 换成了一次真正的交互。</p>
+</div>
+
+<h2>动手</h2>
+
+<ol class="steps">
+  <li>先跑 <code>python3 exercises/00_check_env.py</code>，确认环境还是通的。</li>
+  <li>打开 <code>exercises/04_resilient_loop.py</code>，看一眼新增的两个工具：<code>divide</code>（会报错）、<code>delete_note</code>（危险操作）。</li>
+  <li>补 <strong>TODO 1</strong>：判断 <code>confirmed</code>，是不是危险工具，是的话问人。</li>
+  <li>补 <strong>TODO 2</strong>：<code>try/except</code> 包住真正的执行。</li>
+  <li>补 <strong>TODO 3</strong>：构造带 <code>is_error</code> 的 <code>tool_result</code>。</li>
+  <li>运行 <code>python3 exercises/04_resilient_loop.py</code></li>
+</ol>
+
+<p>三个测试问题：第一个是回归检查（应该和第 3 课一样正常）；第二个故意让它除以 0，<strong>看模型怎么应对一次工具报错</strong>而不是让程序崩掉；第三个会跳出确认提示，<strong>分别试试答 <code>y</code> 和 <code>n</code></strong>，看模型对这两种结果分别怎么回复用户。</p>
+
+<details>
+  <summary>卡住了？先看这里</summary>
+  <p><strong><code>NameError: name 'is_error' is not defined</code>：</strong>TODO 2 还没写，<code>confirmed</code> 为真时那个分支还是占位的 <code>...</code>。</p>
+  <p><strong>程序照样崩在 <code>ZeroDivisionError</code>：</strong>说明异常没被 <code>try/except</code> 接住，检查缩进和 <code>except</code> 有没有对齐 <code>try</code>。</p>
+  <p><strong>没弹出确认提示就直接删了：</strong>TODO 1 的 <code>confirmed</code> 判断漏了 <code>call.name in DANGEROUS</code> 这个条件。</p>
+  <p><strong>拒绝之后模型好像没反应过来：</strong>检查是不是漏了报 <code>tool_result</code>（哪怕拒绝也要报一条，不能 <code>continue</code> 跳过）。</p>
+  <p style="margin-bottom:0"><strong>模型明明该确认却没等你输入就继续了：</strong>大概率是 <code>DANGEROUS</code> 集合里的名字和工具声明的 <code>name</code> 拼错了没对上。</p>
+</details>
+
+<details>
+  <summary>参考答案（自己写完再打开）</summary>
+<pre><code>confirmed = <span class="k">True</span>
+<span class="k">if</span> call.name <span class="k">in</span> DANGEROUS:
+    reply = input(f<span class="s">"  [需要确认] 要执行 {call.name}({call.input}) 吗？(y/n) "</span>)
+    confirmed = reply.strip().lower() == <span class="s">"y"</span>
+
+<span class="k">if</span> <span class="k">not</span> confirmed:
+    output = <span class="s">"用户拒绝执行此操作"</span>
+    is_error = <span class="k">True</span>
+<span class="k">else</span>:
+    <span class="k">try</span>:
+        output = TOOLS[call.name](**call.input)
+        is_error = <span class="k">False</span>
+    <span class="k">except</span> Exception <span class="k">as</span> e:
+        output = f<span class="s">"工具执行失败：{e}"</span>
+        is_error = <span class="k">True</span>
+
+results.append(
+    {
+        <span class="s">"type"</span>: <span class="s">"tool_result"</span>,
+        <span class="s">"tool_use_id"</span>: call.id,
+        <span class="s">"content"</span>: str(output),
+        <span class="s">"is_error"</span>: is_error,
+    }
+)</code></pre>
+  <p style="margin-bottom:0">和第 3 课比，多的代码不到十行，但你的 Agent 从"能跑的 demo"变成了"敢让别人用的东西"。这十行的价值，客户不会替你打折。</p>
+</details>
+
+<h2>还剩两个问题（先想，别写）</h2>
+
+<p>第 3 课末尾留的四个问题，今天处理了两个。剩下两个是下一课的内容：</p>
+
+<ul>
+<li>历史涨到超过上下文窗口怎么办？（提示：<a href="../reference/tool-use-protocol.html">协议速查</a>里有一个专门的 <code>stop_reason</code> 值对应这个情况）</li>
+<li>如果客户要求"每次执行工具前都记一条日志，出问题能查"，你会往循环的哪一步插这段代码？</li>
+</ul>
+
+<h2>检验一下：合上课文再答</h2>
+
+<p>七题，其中<strong>两题回考前两课</strong>。凭记忆答。</p>
+
+<div class="quiz" data-title="第 4 课 · 回忆练习（含回考）">
+<script type="application/json">
+[
+  {
+    "q": "工具执行时抛出异常，正确的处理方式是什么？",
+    "options": [
+      "接住这次异常，把错误报回给模型",
+      "让异常直接冒出循环，程序崩溃掉",
+      "忽略这次调用，什么也不返回回去",
+      "换一个更贵的模型供应商再重试"
+    ],
+    "answer": 0,
+    "why": "把异常包成字符串塞进 tool_result 的 content，is_error 设为 True 报回去，模型往往能自己看懂并调整参数重试。让异常冒出循环等于让整个 Agent 崩溃，这正是「demo」和「能交付」之间的分界之一。"
+  },
+  {
+    "q": "模型编造了一个 TOOLS 里不存在的工具名，代码会怎样？",
+    "options": [
+      "查表失败会抛异常，被接住变成结果",
+      "解释器自动忽略，静默跳过这次调用",
+      "服务端会提前拦截，代码根本不执行",
+      "必须再手写一层白名单校验才能防住"
+    ],
+    "answer": 0,
+    "why": "你为处理工具报错写的 try/except 顺带解决了这个问题。TOOLS[call.name] 找不到键会抛 KeyError，和其它异常一样被捕获、变成 is_error=True 的结果报回去，不需要再单独写一层名字校验。"
+  },
+  {
+    "q": "危险操作（比如删除数据）在执行前，合理的做法是什么？",
+    "options": [
+      "执行前先问人，等确认才真正执行",
+      "让模型自己判断要不要真的执行",
+      "直接执行，出问题再手动回滚数据",
+      "把这类工具的描述写得更谨慎一点"
+    ],
+    "answer": 0,
+    "why": "把危险工具单独标记出来，执行前用 input() 之类的方式让人确认，拒绝就返回一个「用户拒绝」的错误结果给模型。不能指望模型自己判断该不该做，它的判断依据是概率，不是责任。"
+  },
+  {
+    "q": "用户拒绝了一次危险操作的确认，代码该怎么做？",
+    "options": [
+      "照样报一条结果，标成一次失败",
+      "什么都不报，直接跳到下一个问题",
+      "抛出异常，让整个循环停在这一轮",
+      "把这次拒绝悄悄记下来，不告诉模型"
+    ],
+    "answer": 0,
+    "why": "拒绝也是一种结果，不是没有结果。必须报一条 tool_result 回去（内容是「用户拒绝执行此操作」，is_error 设 True），模型才知道发生了什么，能对用户说清楚，而不是卡住或装作没这回事。"
+  },
+  {
+    "q": "回考第 3 课。为什么要把 assistant 那一轮原样追加回 messages？",
+    "options": [
+      "模型无状态，不重发就忘了刚才的请求",
+      "为了在本地留一份调试日志方便排查",
+      "为了让下一轮请求的输入费用算得更准",
+      "为了给这一轮的工具结果留出位置"
+    ],
+    "answer": 0,
+    "why": "模型不记得自己刚才要求调了什么工具。只发 tool_result 不发对应的 tool_use，服务端会报 400。今天新增的 try/except 和确认逻辑都发生在这一步之后，前提没变。"
+  },
+  {
+    "q": "回考第 2 课。客户要做一个能一直聊的客服机器人，你该在意什么？",
+    "options": [
+      "对话越长，单轮的输入费用就越贵",
+      "只要模型选得够聪明，轮数不重要",
+      "第一轮多贵，后面的轮数价格一样",
+      "报价只看模型档次，跟轮数没关系"
+    ],
+    "answer": 0,
+    "why": "历史每轮都要重发，input_tokens 随轮数线性增长。今天加的 try/except 和确认逻辑会让某些问题多花一两轮，这笔账客户不会替你算，得自己在报价里留出来。"
+  },
+  {
+    "q": "「把失败变成模型能读懂的输入」，这句话说的是什么手法？",
+    "options": [
+      "结果里带上一个专门的失败标记",
+      "把错误的完整堆栈打印到终端上",
+      "让程序直接退出，等人重新启动",
+      "换一个更贵的模型来避免出错"
+    ],
+    "answer": 0,
+    "why": "这是 Agent 可靠性的核心手法之一。把异常包成字符串放进 content，配上 is_error: True，模型收到后往往能自己判断哪里错了、要不要换个参数重试，比让程序崩溃或死等人工介入都更可靠。"
+  }
+]
+</script>
+</div>
+
+<h2>今天的主要阅读</h2>
+
+<p>没有新的外部链接。今天所有字段用法已经在 <a href="../reference/tool-use-protocol.html"><strong>工具调用协议速查</strong></a>「工具报错怎么办」一节里，回去把那一节和你写的代码对照着读一遍。</p>
+
+<div class="ask">
+  <p style="margin-bottom:0"><strong>我是你的老师，随时来问。</strong><br>
+  这一课的报错大多是逻辑没接对（该问的没问、该报的没报），不是字段名问题，贴代码给我时把 key 删掉。<br>
+  特别推荐问：<strong>「拒绝之后模型具体说了什么」</strong>（看它怎么把一次失败转述给用户，这直接关系到产品体感）、<strong>「除了 input()，前端项目里这个确认关口该怎么实现」</strong>（值得认真聊一次架构）、<strong>「is_error 之外还有别的信号能给模型吗」</strong>。</p>
+</div>
+
+<div class="footer">
+  <h3>下一课会讲什么</h3>
+  <p>处理剩下那两个问题：<strong>上下文超限怎么裁剪</strong>，以及<strong>怎么在循环里插入日志和监控</strong>而不把代码写乱。这两件事合起来，决定了你的 Agent 能不能撑过一次真实的、长时间的对话。</p>
+
+  <h3>本课相关</h3>
+  <p>
+    <a href="0003-real-tool-loop.html">第 3 课 · 让真模型自己决定调哪个工具</a><br>
+    <a href="0005-trim-and-log.html">第 5 课 · 历史裁剪与结构化日志 →</a><br>
+    <a href="../reference/tool-use-protocol.html">参考 · 工具调用协议速查</a><br>
+    <a href="../reference/glossary.html">参考 · 术语表</a>　·　<a href="../reference/python-for-ts-devs.html">参考 · Python 速查</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+</div>
+
+</body>
+</html>

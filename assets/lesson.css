@@ -1,0 +1,463 @@
+/* ==========================================================================
+   lesson.css — 本工作区所有课程与参考文档的共享样式表
+   Tufte 风格：宽松的行长、衬线正文、边注、克制的用色、可打印。
+   引用方式： <link rel="stylesheet" href="../assets/lesson.css">
+   ========================================================================== */
+
+:root {
+  --ink:        #14130f;
+  --ink-soft:   #45423a;
+  --ink-faint:  #8b8677;
+  --paper:      #fffdf7;
+  --rule:       #ddd8c8;
+  --accent:     #9b1c1c;   /* Tufte 红：仅用于强调，不用于装饰 */
+  --ok:         #16704a;
+  --ok-bg:      #ecf6f0;
+  --bad:        #a3211b;
+  --bad-bg:     #fbeceb;
+  --code-bg:    #f5f2ea;
+  --measure:    38rem;
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+           "Source Han Serif SC", Georgia, "Times New Roman", serif;
+  --sans:  -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+           "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --mono:  "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+/* --- 基础排版 ------------------------------------------------------------ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0 auto;
+  padding: 4rem 2rem 8rem;
+  max-width: 60rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  text-rendering: optimizeLegibility;
+}
+
+p, ul, ol, blockquote, figure, table, pre, .callout, .quiz, .steps, details {
+  max-width: var(--measure);
+}
+
+p { margin: 0 0 1.2rem; }
+
+/* --- 标题 ---------------------------------------------------------------- */
+
+h1, h2, h3 { font-weight: 400; line-height: 1.25; letter-spacing: -0.01em; }
+
+h1 {
+  margin: 0 0 0.3rem;
+  font-size: 2.35rem;
+  font-style: italic;
+}
+
+h2 {
+  margin: 3.2rem 0 1rem;
+  font-size: 1.55rem;
+  font-style: italic;
+}
+
+h3 {
+  margin: 2.2rem 0 0.6rem;
+  font-size: 1.15rem;
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* --- 页眉 / 面包屑 ------------------------------------------------------- */
+
+.breadcrumb {
+  margin: 0 0 2.5rem;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.breadcrumb a { color: var(--ink-faint); }
+
+.subtitle {
+  margin: 0 0 0.4rem;
+  max-width: var(--measure);
+  font-size: 1.2rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.meta {
+  margin: 0 0 3rem;
+  padding-bottom: 1.6rem;
+  border-bottom: 1px solid var(--rule);
+  max-width: var(--measure);
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.meta span + span::before { content: " · "; }
+
+/* --- 链接 ---------------------------------------------------------------- */
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(155, 28, 28, 0.28);
+}
+
+a:hover { border-bottom-color: var(--accent); }
+
+/* --- 代码 ---------------------------------------------------------------- */
+
+code, kbd, samp {
+  font-family: var(--mono);
+  font-size: 0.87em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+pre {
+  margin: 1.4rem 0;
+  padding: 1.1rem 1.25rem;
+  overflow-x: auto;
+  background: var(--code-bg);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+/* 代码块标题条 */
+.filename {
+  display: inline-block;
+  margin: 1.4rem 0 -1.4rem;
+  padding: 0.2rem 0.7rem;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  border-radius: 3px 3px 0 0;
+}
+.filename + pre { margin-top: 1.4rem; border-top-left-radius: 0; }
+
+/* 注释 / TODO 高亮（手写，无需高亮库） */
+.c  { color: var(--ink-faint); font-style: italic; }   /* 注释 */
+.td { color: var(--accent); font-weight: 600; }        /* TODO */
+.s  { color: #1d6b52; }                                /* 字符串 */
+.k  { color: #7c3aed; }                                /* 关键字 */
+
+/* --- 对照表（TS ↔ Python 的主力表现形式） ------------------------------- */
+
+table {
+  width: 100%;
+  margin: 1.6rem 0;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+thead th {
+  padding: 0.4rem 0.7rem 0.5rem;
+  border-bottom: 1.5px solid var(--ink);
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--ink-soft);
+}
+
+tbody td {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+tbody tr:last-child td { border-bottom: 1px solid var(--ink); }
+
+table code { background: none; padding: 0; }
+
+.wide { max-width: 52rem; }
+
+/* --- 强调块 -------------------------------------------------------------- */
+
+.callout {
+  margin: 2rem 0;
+  padding: 0.9rem 0 1rem;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--rule);
+}
+
+.callout > :last-child { margin-bottom: 0; }
+
+.callout .label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.callout.trap .label { color: #a05a00; }
+
+blockquote {
+  margin: 1.8rem 0;
+  padding-left: 1.2rem;
+  border-left: 2px solid var(--rule);
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+blockquote cite {
+  display: block;
+  margin-top: 0.5rem;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  font-style: normal;
+  color: var(--ink-faint);
+}
+
+/* --- 编号步骤（动手环节） ----------------------------------------------- */
+
+.steps { margin: 1.6rem 0; padding: 0; list-style: none; counter-reset: step; }
+
+.steps > li {
+  position: relative;
+  margin-bottom: 1.5rem;
+  padding-left: 2.6rem;
+  counter-increment: step;
+}
+
+.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.15rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* --- 折叠（答案 / 提示：刻意设置的摩擦） -------------------------------- */
+
+details {
+  margin: 1.5rem 0;
+  padding: 0.7rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #fbf9f2;
+}
+
+details[open] { padding-bottom: 0.3rem; }
+
+summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+summary:hover { color: var(--accent); }
+
+/* --- 测验组件（quiz.js 渲染） ------------------------------------------- */
+
+.quiz {
+  margin: 2rem 0;
+  padding: 1.3rem 1.5rem 1rem;
+  border: 1px solid var(--ink);
+  border-radius: 5px;
+  background: #fff;
+  font-family: var(--sans);
+}
+
+.quiz-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.quiz-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.quiz-score {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.quiz-q { padding: 1.1rem 0 0.6rem; border-bottom: 1px solid var(--rule); }
+.quiz-q:last-of-type { border-bottom: none; }
+
+.quiz-prompt {
+  margin: 0 0 0.75rem;
+  max-width: none;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+  line-height: 1.55;
+}
+
+.quiz-prompt .n {
+  margin-right: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.quiz-opts { display: grid; gap: 0.4rem; }
+
+.quiz-opt {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.quiz-opt:hover:not(:disabled) { border-color: var(--ink-soft); background: #fbf9f2; }
+.quiz-opt:disabled { cursor: default; }
+
+.quiz-opt.is-correct {
+  border-color: var(--ok);
+  background: var(--ok-bg);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.quiz-opt.is-wrong {
+  border-color: var(--bad);
+  background: var(--bad-bg);
+  color: var(--bad);
+  text-decoration: line-through;
+}
+
+.quiz-why {
+  margin: 0.7rem 0 0.2rem;
+  max-width: none;
+  padding: 0.6rem 0.85rem;
+  border-left: 2px solid var(--rule);
+  background: #fbf9f2;
+  font-family: var(--serif);
+  font-size: 0.93rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.quiz-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.87rem;
+  color: var(--ink-soft);
+}
+
+.quiz-reset {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.quiz-reset:hover { border-color: var(--ink-soft); }
+
+/* --- 页脚 ---------------------------------------------------------------- */
+
+.footer {
+  margin-top: 4.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  max-width: var(--measure);
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.footer h3 { margin-top: 0; }
+
+.ask {
+  margin: 2.5rem 0 0;
+  padding: 1rem 1.3rem;
+  border: 1px dashed var(--ink-faint);
+  border-radius: 4px;
+  max-width: var(--measure);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.ask strong { color: var(--ink); }
+
+/* --- 打印 ---------------------------------------------------------------- */
+
+@media print {
+  :root { --paper: #fff; }
+  body { padding: 0; font-size: 10.5pt; max-width: none; }
+  a { color: var(--ink); border-bottom: none; }
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-family: var(--mono);
+    font-size: 0.72em;
+    color: var(--ink-faint);
+    word-break: break-all;
+  }
+  h2 { margin-top: 1.6rem; page-break-after: avoid; }
+  h3 { page-break-after: avoid; }
+  pre, table, .callout, .quiz-q { page-break-inside: avoid; }
+  details { border: none; padding: 0; }
+  details > summary { display: none; }
+  details > *:not(summary) { display: block !important; }
+  .quiz-reset, .quiz-score { display: none; }
+  .quiz { border: 1px solid #999; }
+}
+
+@media (max-width: 640px) {
+  body { padding: 2rem 1.1rem 4rem; font-size: 1rem; }
+  h1 { font-size: 1.85rem; }
+  .quiz { padding: 1rem 1rem 0.8rem; }
+}

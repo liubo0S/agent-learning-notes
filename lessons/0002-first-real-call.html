@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 课 · 第一次真的调用 Claude</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<p class="breadcrumb">第 2 课　·　<a href="0001-agent-loop.html">← 第 1 课</a></p>
+
+<h1>第一次真的调用 Claude</h1>
+<p class="subtitle">顺手解决 Python 的环境问题，并亲眼看见「模型没有记忆」这件事。</p>
+<p class="meta">
+  <span>约 25 分钟（含环境配置）</span>
+  <span>产出：<code>exercises/02_first_call.py</code></span>
+  <span>会真的花钱，但不到一分</span>
+</p>
+
+<h2>你上节课写的东西，只有一处是假的</h2>
+
+<p>回头看 <a href="../exercises/01_agent_loop.py"><code>01_agent_loop.py</code></a>。工具是真的（就是普通函数），循环是真的，退出条件是真的。<strong>唯一的假货是 <code>fake_model</code></strong>，它按调用次数发牌，不做任何判断。</p>
+
+<p>今天把它换成真的。换完之后你会发现一件反直觉的事，而这件事直接决定你以后怎么给客户报价。</p>
+
+<div class="callout">
+  <span class="label">顺便说一句你写代码的习惯</span>
+  <p style="margin-bottom:0">你写的是 <code>if(step['type'] == 'text'):</code>。逻辑完全正确，但那对括号是 JS 留下的肌肉记忆，Python 里不需要，直接写 <code>if step["type"] == "text":</code> 就行。<code>hello.py</code> 里也有同样的写法，所以这是习惯不是偶然。不影响运行，只是别人一眼能看出「这人从 JS 过来的」。课程末尾有个一次性解决的办法。</p>
+</div>
+
+<h2>第一步：<code>.venv</code> 就是 <code>node_modules</code></h2>
+
+<p>Python 默认把包装到系统全局，等于所有项目共用一个 <code>node_modules</code>。项目一多必然打架：A 要 <code>anthropic==0.5</code>，B 要 <code>0.121</code>，装谁都错。</p>
+
+<p><strong>虚拟环境</strong>就是解药，心智模型和 <code>node_modules</code> 完全一致：每个项目一份、可以随时删掉重建、不进版本库。</p>
+
+<table class="wide">
+<thead><tr><th style="width:46%">你熟的 Node</th><th>今天要敲的 Python</th></tr></thead>
+<tbody>
+<tr><td><span class="c">（不需要，npm 自动建 node_modules）</span></td><td><code>python3 -m venv .venv</code><br><span class="c">建一次就够，之后不用再建</span></td></tr>
+<tr><td><span class="c">（不需要，node 自动往上找）</span></td><td><code>source .venv/bin/activate</code><br><span class="c">⚠️ <strong>每开一个新终端都要重来一次</strong></span></td></tr>
+<tr><td><code>npm install anthropic</code></td><td><code>pip install anthropic</code></td></tr>
+<tr><td><code>npm ls</code></td><td><code>pip list</code></td></tr>
+<tr><td><code>node index.js</code></td><td><code>python3 main.py</code></td></tr>
+<tr><td><span class="c">（无对应物）</span></td><td><code>deactivate</code>　<span class="c">退出虚拟环境</span></td></tr>
+</tbody>
+</table>
+
+<p>把这四行敲进终端：</p>
+
+<span class="filename">终端</span>
+<pre><code><span class="c"># 确保在工作区根目录</span>
+cd /Applications/work/personal/study/pyhton-learn
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install anthropic</code></pre>
+
+<p>成功的标志是<strong>提示符最前面多了 <code>(.venv)</code></strong>。看不到它，就说明第二行没生效，装的包会跑到全局去。</p>
+
+<div class="callout trap">
+  <span class="label">最常见的一个坑</span>
+  <p style="margin-bottom:0"><code>activate</code> 只对<strong>当前这个终端窗口</strong>有效。关掉重开、或者换一个标签页，<code>(.venv)</code> 就没了，此时运行脚本会报 <code>ModuleNotFoundError: No module named 'anthropic'</code>。看到这个报错，第一反应应该是「我忘了 activate」，而不是「包没装上」。<code>node_modules</code> 不需要这一步，所以从前端过来的人几乎都会栽一次。</p>
+</div>
+
+<h2>第二步：配好供应商（key ＋ base_url）</h2>
+
+<p>你手上的 key 是第三方中转的，所以除了 key，还得告诉 SDK <strong>请求该发到哪个地址</strong>。</p>
+
+<p>这一步值得单独讲，因为它比看起来重要得多：<strong>能随时换供应商，是接活交付的一项硬需求。</strong>客户可能因为价格、合规、网络环境指定用哪家。如果你把地址硬写在代码里，换一次就要改一遍代码。</p>
+
+<p>官方 SDK 早就考虑了这件事。它默认会读这两个环境变量：</p>
+
+<table class="wide">
+<thead><tr><th style="width:34%">环境变量</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><code>ANTHROPIC_API_KEY</code></td><td>密钥。不设就报认证错误</td></tr>
+<tr><td><code>ANTHROPIC_BASE_URL</code></td><td>请求发往的地址。<strong>不设就走 Anthropic 官方</strong></td></tr>
+</tbody>
+</table>
+
+<p>所以 <strong>Python 代码一行都不用改</strong>，换供应商只是换环境变量。这不是我推测的，是查证过的两步：先在 SDK 源码里确认它会执行 <code>os.environ.get("ANTHROPIC_BASE_URL")</code>，再拿一个假 key 打到 Kimi 的端点，收到的是 <strong>Kimi 自己的报错文案</strong>而不是 Anthropic 的，说明请求确实路由过去了。</p>
+
+<h3>三种配置，选你手上有的那种</h3>
+
+<table class="wide">
+<thead><tr><th style="width:26%">供应商</th><th>要设的环境变量</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Anthropic 官方</strong></td>
+  <td><code>ANTHROPIC_API_KEY</code> 一个就够<br><span class="c">模型：<code>claude-haiku-4-5</code></span></td>
+</tr>
+<tr>
+  <td><strong>第三方中转</strong><br><span class="c">← 你的情况</span></td>
+  <td><code>ANTHROPIC_API_KEY</code> ＋ <code>ANTHROPIC_BASE_URL</code><br><span class="c">模型名照官方写法，中转通常原样透传</span></td>
+</tr>
+<tr>
+  <td><strong>Kimi</strong><br><span class="c">（备选）</span></td>
+  <td>上面两个 ＋ <code>LESSON_MODEL</code><br><span class="c">模型：<code>kimi-k3</code></span></td>
+</tr>
+</tbody>
+</table>
+
+<p>第三方中转（你的情况）：</p>
+
+<span class="filename">终端</span>
+<pre><code>export ANTHROPIC_API_KEY=<span class="s">"你的中转key"</span>
+export ANTHROPIC_BASE_URL=<span class="s">"https://你的中转地址"</span>
+
+<span class="c"># 验证（应该各打印一行，不是空行）</span>
+echo $ANTHROPIC_API_KEY
+echo $ANTHROPIC_BASE_URL</code></pre>
+
+<p>中转地址填到哪一层，取决于服务商的说明。SDK 会自己在后面接 <code>/v1/messages</code>，所以<strong>一般填到根路径就行，不要把 <code>/v1/messages</code> 也写进去</strong>，否则会 404。填错了自检脚本会告诉你。</p>
+
+<p>换成 Kimi 的话（端点我实测存在，返回的是 Moonshot 自己的认证错误，说明路径对）：</p>
+
+<span class="filename">终端</span>
+<pre><code>export ANTHROPIC_API_KEY=<span class="s">"你的Kimi key"</span>
+export ANTHROPIC_BASE_URL=<span class="s">"https://api.moonshot.cn/anthropic"</span>
+export LESSON_MODEL=<span class="s">"kimi-k3"</span></code></pre>
+
+<p class="c">注意用 <code>.cn</code> 那个域名，<code>api.moonshot.ai</code> 从本机连不上。Kimi 提供的是 <strong>Anthropic 兼容端点</strong>，所以官方 <code>anthropic</code> SDK 直接就能用，不需要换成 OpenAI 的包。模型 ID 取自 Moonshot 官方文档（另有 <code>kimi-k2.6</code>、<code>kimi-k2.7-code-highspeed</code> 等）。</p>
+
+<div class="callout">
+  <span class="label">我的建议：先用第三方中转</span>
+  <p style="margin-bottom:0">理由是<strong>学习成本</strong>，不是质量。中转走的是 Anthropic 兼容协议，意味着你读到的每一份 Anthropic 官方文档、每一个 <code>tool_use</code> 的字段名，都能<strong>逐字套用</strong>，不用在脑子里做转换。下一课要接工具调用，字段一致会省掉很多困惑。<br>
+  Kimi 留作备选：中转不稳、或者想省钱时切过去，反正只是改两个环境变量。<strong>把「能一键换供应商」当成你交付项目的默认架构</strong>，这是今天顺带学到的最值钱的一件事。</p>
+</div>
+
+<h3>先跑自检，别急着做练习</h3>
+
+<p>配置类的问题最耗时间，所以我写了个自检脚本，把「装没装、设没设、通不通」一次性查完：</p>
+
+<span class="filename">终端</span>
+<pre><code>python3 exercises/00_check_env.py</code></pre>
+
+<p>它会打印 Python 版本、SDK 版本、遮掉中间的 key、实际使用的地址、模型名，然后发一个最小请求。<strong>看到「配置没问题」再往下做。</strong>报错的话它会分情况告诉你原因（401 是 key 和地址不匹配、404 是模型名不对、连不上是地址错），比直接看 SDK 抛的栈清楚得多。</p>
+
+<p>以后任何一节课出问题，第一步都回来跑它。</p>
+
+<div class="callout">
+  <span class="label">交付视角：key 为什么绝不写进代码</span>
+  <p>你会看到很多教程直接 <code>api_key="sk-..."</code> 写在源文件里。别学。你要接活交付，代码最终会进客户的仓库。密钥一旦被提交，即使后来删掉，它<strong>永远躺在 git 历史里</strong>。GitHub 上有专门扫密钥的爬虫，泄露到盗刷通常是分钟级。</p>
+  <p style="margin-bottom:0">但要说清楚一件事：环境变量<strong>并不加密</strong>，它就是明文。它解决的唯一问题是<strong>让密钥不进版本库</strong>。所以我顺手给你建了 <code>.gitignore</code>，把 <code>.venv/</code>、<code>__pycache__/</code>、<code>.env</code> 都排除掉了。<br>
+  还有：<strong>别把 key 粘到我们的对话里</strong>。你不需要给我看，我也不该看到。</p>
+</div>
+
+<p>环境变量只在当前终端有效。想长期生效，把那几行 <code>export</code> 追加到 <code>~/.zshrc</code>，然后 <code>source ~/.zshrc</code>。</p>
+
+<h2>第三步：发出第一个请求</h2>
+
+<p>只有三个必填参数。我查了 SDK 的真实函数签名来确认这一点，不是凭印象写的：</p>
+
+<table>
+<thead><tr><th>参数</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><code>model</code></td><td>用哪个模型。练习脚本从 <code>LESSON_MODEL</code> 环境变量读，默认 <code>claude-haiku-4-5</code>。<strong>模型名归供应商管</strong>，换家就得换名</td></tr>
+<tr><td><code>max_tokens</code></td><td>最多让它输出多少 token。<strong>必填</strong>，这是防止一次回复烧掉大量成本的安全阀</td></tr>
+<tr><td><code>messages</code></td><td>对话历史，一个列表。每项是 <code>{"role": ..., "content": ...}</code></td></tr>
+</tbody>
+</table>
+
+<p><code>role</code> 只有两个值需要现在关心：<code>"user"</code>（你说的）和 <code>"assistant"</code>（模型说的）。</p>
+
+<div class="callout trap">
+  <span class="label">第一个反直觉点：回复不是字符串，而且第一块不一定是文字</span>
+  <p><code>resp.content</code> 是一个<strong>内容块的列表</strong>。为什么？因为一次回复可能同时装着好几种东西，每种是一个块：</p>
+  <table>
+  <thead><tr><th>块类型</th><th><code>type</code> 的值</th><th>内容在哪</th></tr></thead>
+  <tbody>
+  <tr><td>文字</td><td><code>"text"</code></td><td><code>.text</code></td></tr>
+  <tr><td>思考过程</td><td><code>"thinking"</code></td><td><code>.thinking</code>　<strong>没有 <code>.text</code></strong></td></tr>
+  <tr><td>工具调用请求</td><td><code>"tool_use"</code></td><td><code>.name</code> 和 <code>.input</code></td></tr>
+  </tbody>
+  </table>
+  <p>所以<strong>不能写 <code>resp.content[0].text</code></strong>。思考型模型（<code>kimi-k3</code> 就是）会把 <code>thinking</code> 块放在最前面，那样写会直接抛 <code>AttributeError: 'ThinkingBlock' object has no attribute 'text'</code>。</p>
+  <p style="margin-bottom:0">正确做法是<strong>按类型筛</strong>：</p>
+  <pre style="margin-bottom:0"><code>text = <span class="s">""</span>.join(b.text <span class="k">for</span> b <span class="k">in</span> resp.content <span class="k">if</span> b.type == <span class="s">"text"</span>)
+
+<span class="c"># TS 类比：</span>
+<span class="c"># content.filter(b =&gt; b.type === "text").map(b =&gt; b.text).join("")</span></code></pre>
+</div>
+
+<p>这个设计<strong>下一课就会派上用场</strong>：届时你会在同一个 <code>content</code> 里同时看到 <code>text</code> 块和 <code>tool_use</code> 块，而按类型筛这套写法一行都不用改。</p>
+
+<div class="callout">
+  <span class="label">这段是被真实报错改写的</span>
+  <p style="margin-bottom:0">这节课最初写的是「第一个块的文本在 <code>resp.content[0].text</code>」。你用 <code>kimi-k3</code> 跑自检时撞上了 <code>ThinkingBlock</code> 报错，证明那个简化写法是错的。<br>
+  记住这个教训的形式比记住结论更值钱：<strong>凡是「取第一个」的假设，在真实 API 面前都很脆弱。</strong>你会在整个职业生涯里反复遇到它。</p>
+</div>
+
+<h2>动手</h2>
+
+<ol class="steps">
+  <li>先跑 <code>python3 exercises/00_check_env.py</code>，看到「配置没问题」再继续。</li>
+  <li>打开 <code>exercises/02_first_call.py</code>，通读一遍。这次只有一个函数需要你填，三个 TODO 全在 <code>ask()</code> 里面。</li>
+  <li>补 <strong>TODO 1</strong>：把请求真的发出去。</li>
+  <li>补 <strong>TODO 2</strong>：<strong>按类型筛</strong>出文本块并拼起来。别用 <code>content[0]</code>。</li>
+  <li>补 <strong>TODO 3</strong>：取出 <code>resp.usage</code> 上的 <code>input_tokens</code> 和 <code>output_tokens</code>，返回成一个 tuple。</li>
+  <li>运行：<code>python3 exercises/02_first_call.py</code></li>
+</ol>
+
+<p>下面三个实验是我预先写好的，你不用动，跑一下观察就行。<strong>实验 B 和 C 是今天的重点。</strong></p>
+
+<h2>关键实验：模型没有记忆</h2>
+
+<p>脚本会做三件事：</p>
+
+<ol class="steps">
+  <li><strong>A</strong>　问一个普通问题：list 和 tuple 有什么区别。</li>
+  <li><strong>B</strong>　<strong>不带任何历史</strong>，直接问「那前者的常见用途是什么？」</li>
+  <li><strong>C</strong>　把 A 的问答补进 <code>messages</code>，再问<strong>同一个问题</strong>。</li>
+</ol>
+
+<p>B 的回答会明显语焉不详甚至反问你「前者指什么」。C 会答得好好的。两次请求发的是同一句话，模型也是同一个。</p>
+
+<p>结论只有一句，但它是整个 Agent 工程的地基：</p>
+
+<div class="callout">
+  <span class="label">今天要装进脑子的一句话</span>
+  <p style="margin-bottom:0"><strong>模型是无状态的。</strong>服务端不替你存任何东西。<br>
+  它每次「记得」上文，都是因为<strong>你把全部历史重新发了一遍</strong>。</p>
+</div>
+
+<p>所以脚本最后会自动帮你算一个比值：带历史时的 <code>input_tokens</code> 是不带时的多少倍。这个数字随对话轮数持续增长，而输入 token 是按量计费的。</p>
+
+<p>把这条推到你的目标上：客户说「做一个能一直聊的客服机器人」，你要立刻在脑子里算的是<strong>第 50 轮的单轮成本</strong>，而不是第 1 轮的。第 1 轮几乎免费，第 50 轮可能贵几十倍。<a href="../MISSION.md">不懂这一点的人报不出正确的价</a>，要么亏钱，要么报得离谱丢单。</p>
+
+<p class="c">具体单价我没法在这里给你：这台机器打不开 Anthropic 的定价页（<code>docs.claude.com</code> 和 <code>platform.claude.com</code> 都不可达，只有工程博客和 GitHub 能通）。跑完脚本后去 <a href="https://console.anthropic.com">console.anthropic.com</a> 看 Usage 页，那里是权威数字，顺便确认这次实验确实只花了零点几分钱。</p>
+
+<details>
+  <summary>卡住了？先看这里</summary>
+  <p><strong><code>ModuleNotFoundError: No module named 'anthropic'</code>：</strong>忘了 <code>source .venv/bin/activate</code>。看提示符前有没有 <code>(.venv)</code>。</p>
+  <p><strong>「没找到 ANTHROPIC_API_KEY」：</strong>环境变量没设，或者设在了另一个终端窗口。</p>
+  <p><strong><code>AuthenticationError</code> / 401：</strong>key 无效，<strong>或者 key 和 <code>ANTHROPIC_BASE_URL</code> 不匹配</strong>（拿中转的 key 打了官方地址，或反过来）。</p>
+  <p><strong><code>NotFoundError</code> / 404：</strong>模型名这家供应商不认，或者 <code>base_url</code> 多写了 <code>/v1/messages</code>。用 <code>LESSON_MODEL</code> 换个模型名试试。</p>
+  <p><strong><code>APIConnectionError</code>：</strong>地址连不上。中转地址拼错，或这个域名从你的网络访问不到。</p>
+  <p><strong><code>AttributeError: 'NoneType' object has no attribute 'content'</code>：</strong>TODO 1 没填，<code>resp</code> 还是 <code>None</code>。</p>
+  <p><strong><code>AttributeError: 'ThinkingBlock' object has no attribute 'text'</code>：</strong>写成了 <code>resp.content[0].text</code>，而第一个块是思考块。按类型筛：<code>if b.type == "text"</code>。</p>
+  <p><strong><code>TypeError: 'TextBlock' object is not subscriptable</code>：</strong>写成了 <code>resp.content[0]["text"]</code>。内容块是对象不是 dict，用点号。</p>
+  <p style="margin-bottom:0"><strong>回复被截断，或者没有文本块：</strong><code>max_tokens</code> 到顶了。思考型模型的 <code>thinking</code> 也算输出 token，所以给 <code>800</code> 而不是 <code>300</code>。<code>resp.stop_reason</code> 会显示 <code>"max_tokens"</code> 而不是 <code>"end_turn"</code>。</p>
+</details>
+
+<details>
+  <summary>参考答案（自己写完再打开）</summary>
+<pre><code><span class="k">def</span> ask(messages):
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=<span class="s">800</span>,
+        messages=messages,
+    )
+
+    <span class="c"># 按类型筛，不要假设第一个块是文本</span>
+    text = <span class="s">""</span>.join(b.text <span class="k">for</span> b <span class="k">in</span> resp.content <span class="k">if</span> b.type == <span class="s">"text"</span>)
+    used = (resp.usage.input_tokens, resp.usage.output_tokens)
+
+    <span class="k">return</span> text, used</code></pre>
+  <p style="margin-bottom:0">四行。第 1 课的循环是 11 行，加上这 4 行，你已经有了一个真正能跑的 Agent 的全部零件，只差把它们接起来（下一课的事）。</p>
+</details>
+
+<h2>顺手治一下那个 JS 习惯</h2>
+
+<p>既然虚拟环境已经建好，多装一个工具。<code>ruff</code> 是 Python 世界的 Prettier 加 ESLint，一个工具两件事：</p>
+
+<span class="filename">终端</span>
+<pre><code>pip install ruff
+ruff format exercises/          <span class="c"># 相当于 prettier --write</span>
+ruff check exercises/           <span class="c"># 相当于 eslint</span></code></pre>
+
+<p>跑一下 <code>ruff format</code>，你会看到它把多余的括号、引号风格、逗号前的空格全部规整成社区标准写法。<strong>这比记规则有效得多</strong>：你照旧按手感写，保存前跑一次，习惯自然就被纠过来了。对交付也重要，客户接手的代码风格一致才显得专业。</p>
+
+<h2>检验一下：合上课文再答</h2>
+
+<p>六题，其中有<strong>两题是回考第 1 课的</strong>。这不是凑数：隔一天再回忆一次，是让知识从「刚才看过」变成「真的记住」的关键动作。凭记忆答，别往上翻。</p>
+
+<div class="quiz" data-title="第 2 课 · 回忆练习（含第 1 课回考）">
+<script type="application/json">
+[
+  {
+    "q": "<strong>回考第 1 课。</strong>Agent 循环里除了「模型说完了」，还必须有什么出口？",
+    "options": [
+      "一个限制最大轮数的硬上限",
+      "一个能捕获全部异常的分支",
+      "一个校验参数类型的检查器",
+      "一个记录调用日志的回调钩"
+    ],
+    "answer": 0,
+    "why": "轮数硬上限。每一轮都是一次付费调用，模型可能陷在「调工具、看结果、再调同一个工具」的循环里出不来。异常捕获、类型校验、日志都该有，但它们不是<em>出口</em>，不能让循环停下来。今天你已经看到 token 是怎么计费的，这条的分量应该比昨天更重了。"
+  },
+  {
+    "q": "对话进行到第 10 轮时，你发给模型的内容是什么？",
+    "options": [
+      "把前面九轮连同第十轮全发",
+      "只有第十轮，服务端存历史",
+      "第十轮再加上一份压缩摘要",
+      "最近三轮，更早的被丢弃了"
+    ],
+    "answer": 0,
+    "why": "全部重发。模型是无状态的，服务端不替你保存任何东西。这就是为什么 input_tokens 随轮数线性增长，长对话越来越贵。摘要压缩和滑动窗口是<em>你自己</em>可以选择实现的优化手段，但那是你写的代码，不是默认行为。"
+  },
+  {
+    "q": "<code>resp.content</code> 返回的是什么？",
+    "options": [
+      "内容块的列表，不是字符串",
+      "一个字符串，可以直接打印",
+      "一个字典，含角色与文本键",
+      "一个生成器，需要先遍历它"
+    ],
+    "answer": 0,
+    "why": "内容块的<em>列表</em>。而且不能假设第一个块是文本：思考型模型（如 <code>kimi-k3</code>）会先放一个 <code>thinking</code> 块，它根本没有 <code>.text</code> 属性。正确写法是按类型筛 <code>if b.type == \"text\"</code>。之所以设计成列表，是因为一次回复可能同时含文字块、思考块、工具调用块。"
+  },
+  {
+    "q": "为什么 API key 要放环境变量，而不是写进代码？",
+    "options": [
+      "代码会进仓库，密钥会泄露",
+      "环境变量的读取速度更快些",
+      "官方只支持环境变量这一种",
+      "环境变量能自动加密存储的"
+    ],
+    "answer": 0,
+    "why": "为了不进版本库。密钥一旦提交，即使删掉也永远留在 git 历史里。注意「自动加密」是错的：环境变量就是明文，它不提供任何加密，只是让密钥待在版本库之外。搞混这一点的人会误以为自己已经安全了。"
+  },
+  {
+    "q": "<code>.venv</code> 对应 Node 生态里的哪个东西？",
+    "options": [
+      "依赖目录，每个项目一份",
+      "全局的包缓存，共用一份",
+      "锁文件，记录精确版本号",
+      "编译缓存，加速二次构建"
+    ],
+    "answer": 0,
+    "why": "相当于 <code>node_modules</code>：每个项目一份、可以删掉重建、不该进版本库。唯一的区别是 Python 必须显式 <code>activate</code> 才会用到它，而 node 会自动向上查找。这个区别正是新手最常踩的坑。"
+  },
+  {
+    "q": "同一份代码要换成另一家供应商，最少要改什么？",
+    "options": [
+      "两个环境变量，代码不用改",
+      "要改用另一家的官方软件包",
+      "要重写消息格式与解析逻辑",
+      "在代码里硬写上新的地址串"
+    ],
+    "answer": 0,
+    "why": "<code>ANTHROPIC_API_KEY</code> 加 <code>ANTHROPIC_BASE_URL</code> 两个环境变量，再加一个模型名。官方 SDK 会自己去读 base_url，所以 Python 代码一个字都不用动。这一点对接活很实用：客户指定供应商时你不改代码。前提是对方提供 Anthropic <em>兼容</em>端点，Kimi 就提供。"
+  },
+  {
+    "q": "<strong>回考第 1 课。</strong>Python 里 <code>if items:</code> 在 items 是空列表时会怎样？",
+    "options": [
+      "不成立，因为空列表是假值",
+      "成立，和前端语言行为一致",
+      "报错，必须显式地比较长度",
+      "取决于这个列表的声明方式"
+    ],
+    "answer": 0,
+    "why": "不成立。空列表 <code>[]</code>、空字典 <code>{}</code>、空字符串、<code>0</code>、<code>None</code> 在 Python 里全是假值，而 JS 里 <code>if ([])</code> 是<em>成立</em>的。这是从前端过来最容易被咬的行为差异，而且 Agent 代码里到处是列表和字典：messages 历史、工具参数、内容块。"
+  }
+]
+</script>
+</div>
+
+<h2>今天的主要阅读</h2>
+
+<p><a href="https://www.anthropic.com/engineering/building-effective-agents"><strong>Building Effective Agents</strong></a> — Anthropic 工程博客（我已确认这个链接可以打开）</p>
+
+<p>上节课我只能转述，因为当时抓不到原文。现在拿到了，这是文章里划定边界的原句：</p>
+
+<blockquote>
+  <p>Workflows are systems where LLMs and tools are orchestrated through predefined code paths. Agents, on the other hand, are systems where LLMs dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.</p>
+  <cite>Anthropic, <a href="https://www.anthropic.com/engineering/building-effective-agents">Building Effective Agents</a></cite>
+</blockquote>
+
+<p>翻译：<strong>workflow</strong> 是「LLM 和工具被事先写好的代码路径编排起来」的系统；<strong>agent</strong> 则是「LLM 自己动态决定流程与工具用法、自己掌控如何完成任务」的系统。</p>
+
+<p>还有一句同样值得抄下来，它是这篇文章真正的忠告：<em>“we recommend finding the simplest solution possible, and only increasing complexity when needed. This might mean not building agentic systems at all.”</em> 翻译：先找最简单的方案，只在确有必要时才加复杂度，这甚至可能意味着<strong>根本不该做 Agent</strong>。接活的时候，能判断「这个需求不需要 Agent」是很值钱的能力。</p>
+
+<div class="ask">
+  <p style="margin-bottom:0"><strong>我是你的老师，随时来问。</strong><br>
+  这节课有真实的环境配置，卡住的概率比上节课高得多，卡住就直接把报错整段贴给我（<strong>但把 key 那部分删掉</strong>）。<br>
+  另外推荐问：<strong>「实验 B 它到底怎么回答的」</strong>（模型的失败方式很有信息量）、<strong>「50 轮对话到底会贵多少」</strong>（我们可以一起算）、<strong>「为什么不用框架直接省掉这些」</strong>（这个问题值得认真聊）。</p>
+</div>
+
+<div class="footer">
+  <h3>下一课会讲什么</h3>
+  <p>把两节课接起来：<strong>真模型 + 工具调用</strong>。你会把第 1 课的 <code>fake_model</code> 删掉，换成真的 Claude，并且第一次看到 <code>tool_use</code> 块从 <code>content</code> 里冒出来。到那时你今天记住的「content 是列表」会立刻派上用场，而循环的骨架一行都不用改。</p>
+
+  <h3>本课相关</h3>
+  <p>
+    <a href="0001-agent-loop.html">第 1 课 · Agent 的心脏是一个 while 循环</a><br>
+    <a href="../reference/python-for-ts-devs.html">参考 · 给 TypeScript 开发者的 Python 速查</a><br>
+    <a href="../reference/glossary.html">参考 · 术语表</a><br>
+    <a href="../MISSION.md">MISSION.md</a>　·　<a href="../RESOURCES.md">RESOURCES.md</a>
+  </p>
+</div>
+
+</body>
+</html>
